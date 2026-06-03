@@ -231,11 +231,52 @@ router.post('/:id/regenerate-narrative', async (req: Request, res: Response) => 
   if (!report) return res.status(404).json({ error: 'Report not found' });
 
   const tone = req.body.tone || report.narrativeTone;
-  await prisma.report.update({ where: { id: report.id }, data: { status: 'generating' } });
+  // Persist the new tone so the UI reflects it after reload
+  await prisma.report.update({
+    where: { id: report.id },
+    data: { status: 'generating', narrativeTone: tone },
+  });
 
   generateReportAsync(report.id, report.client, tone);
 
-  res.json({ id: report.id, status: 'generating' });
+  res.json({ id: report.id, status: 'generating', narrativeTone: tone });
+});
+
+router.post('/:id/export-pdf', async (req: Request, res: Response) => {
+  const report = await prisma.report.findFirst({
+    where: { id: req.params.id, agencyId: req.agencyId },
+    include: {
+      client: { select: { id: true, name: true, contactEmail: true, contactName: true } },
+      agency: {
+        select: {
+          id: true, name: true, brandColor: true, logoUrl: true,
+          subscriptionTier: true, narrativeTone: true,
+        },
+      },
+    },
+  });
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  if (report.status !== 'ready') {
+    return res.status(400).json({ error: 'Report is not ready for export', status: report.status });
+  }
+
+  try {
+    const { generatePDF } = await import('../services/pdf.service');
+    const pdfBuffer = await generatePDF(report, report.agency, report.client);
+    const clientSlug = (report.client?.name || 'Report').replace(/\s+/g, '-');
+    const dateSlug   = new Date(report.dateRangeStart).toISOString().slice(0, 10);
+    const filename   = `${clientSlug}-Performance-Report-${dateSlug}.pdf`;
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(pdfBuffer.length),
+      'Cache-Control': 'no-store',
+    });
+    res.send(pdfBuffer);
+  } catch (e: any) {
+    console.error('PDF generation error:', e);
+    res.status(500).json({ error: 'PDF generation failed', message: e.message });
+  }
 });
 
 router.put('/:id/rating', async (req: Request, res: Response) => {
