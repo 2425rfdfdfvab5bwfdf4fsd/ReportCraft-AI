@@ -1,0 +1,33 @@
+You are a senior full-stack engineer. Read the attached PRD (ReportCraft AI v3.0) in full, then do the following in order:
+
+STEP 1 — Audit the current codebase against the PRD.
+Read every existing file. Then produce a checklist with three columns: Feature (from PRD §6, §8, §9), Status (✅ Done / ⚠️ Partial / ❌ Missing), and Gap (what exactly is missing or broken). Cover every item in:
+
+§6 Features 1–14 (all acceptance criteria)
+§7 Data Models (every field on every model)
+§8 API Endpoints (every route, method, auth requirement, request/response shape)
+§9 Pages & Routes (all 18 routes)
+§10 UI/UX (dark mode default, color tokens, three key UI flows)
+§11 Auth & Authorization (role table, ProtectedLayout three-state logic, webhook recovery)
+§12 Error Handling (every bullet — all 18 edge cases)
+§13 Security (AES-256-GCM token encryption, zod validation, helmet, rate limiting, CORS, all DB indexes from §13.2)
+STEP 2 — Implement every ❌ Missing and ⚠️ Partial item.
+Follow the implementation order in PRD §15 exactly (Phase 1 → Phase 2 → Phase 3 → Phase 4). Do not skip a phase. Build until the checklist from Step 1 is 100% ✅.
+
+Non-negotiable requirements when you finish:
+
+npm run dev (or equivalent single command) starts the app and it is visible in the Replit preview pane with no errors
+All 18 routes from §9 render without crashing
+The Prisma schema matches §7 exactly, with every @@index from §13.2 present
+GET /health returns { status: "ok" } without querying the database
+The DB keep-alive job runs every 4 minutes (*/4 * * * *)
+On server startup, any Report with status = 'generating' and updatedAt < NOW() - 35s is reset to status = 'error'
+OAuth tokens are encrypted with AES-256-GCM before being written to the database — raw token values never appear in the DB or logs
+AI narrative generation uses OpenAI GPT-4o as primary with automatic fallback to claude-3-5-sonnet-20241022 on 429/500/503/timeout
+The trial countdown banner appears on all authenticated pages starting 7 days before trialEndsAt
+past_due accounts get a persistent banner and enter read-only after 3 days
+All webhook endpoints (Clerk, Lemon Squeezy, Resend) verify HMAC signatures before processing
+.env.example files exist for both apps/web and apps/server listing every required variable from PRD §5.3 — no secrets are hardcoded anywhere
+Every form shows inline field-level errors (not toast-only) and every empty state shows a specific actionable next step
+The PDF export generates a valid, downloadable file with agency logo, brand color, and (on Starter tier) a "Generated with ReportCraft AI" footer
+Do not stop or ask for confirmation between steps. Work until all items are done and the app runs end-to-end.
