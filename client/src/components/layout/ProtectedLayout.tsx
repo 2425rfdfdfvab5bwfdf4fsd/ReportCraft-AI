@@ -61,6 +61,7 @@ function AppShell({ requireOnboarding = true }: Props) {
   const navigate = useNavigate();
   const { data: agency, isLoading } = useQuery('agency', agencyApi.get, { retry: 1, onError: () => {} });
   const [upgradeModal, setUpgradeModal] = useState<{ reason: any } | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoading && agency && requireOnboarding && !agency.onboardingCompletedAt) {
@@ -83,18 +84,37 @@ function AppShell({ requireOnboarding = true }: Props) {
     return () => window.removeEventListener('show-upgrade-modal', handler);
   }, []);
 
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [sidebarOpen]);
+
   return (
     <div className="flex h-screen bg-[#0F172A] overflow-hidden">
-      <Sidebar agency={agency} />
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <Sidebar agency={agency} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <NetworkErrorBanner />
         <TrialBanner agency={agency} />
         <PastDueBanner agency={agency} />
-        <Topbar agency={agency} />
-        <main className="flex-1 overflow-y-auto p-6">
+        <Topbar agency={agency} onMenuClick={() => setSidebarOpen(true)} />
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet />
         </main>
       </div>
+
       {upgradeModal && (
         <UpgradeModal
           reason={upgradeModal.reason}
@@ -106,7 +126,6 @@ function AppShell({ requireOnboarding = true }: Props) {
   );
 }
 
-// Separate component so useAuth hook is ONLY called when Clerk is configured
 function ClerkGuard({ requireOnboarding }: Props) {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -123,7 +142,6 @@ function ClerkGuard({ requireOnboarding }: Props) {
 }
 
 export default function ProtectedLayout({ requireOnboarding = true }: Props) {
-  // Demo mode: skip auth entirely
   if (!CLERK_KEY) return <AppShell requireOnboarding={requireOnboarding} />;
   return <ClerkGuard requireOnboarding={requireOnboarding} />;
 }

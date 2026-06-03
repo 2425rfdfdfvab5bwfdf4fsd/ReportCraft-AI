@@ -6,6 +6,9 @@ const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx,js,jsx}'],
   theme: {
     extend: {
+      screens: {
+        xs: '480px',
+      },
       colors: {
         primary: { DEFAULT: '#6366F1', hover: '#4F46E5', foreground: '#ffffff' },
         background: { DEFAULT: '#0F172A', light: '#F8FAFC' },
