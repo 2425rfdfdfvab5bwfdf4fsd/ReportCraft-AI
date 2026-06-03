@@ -67,3 +67,19 @@ description: All gaps found and fixed during the full PRD v3.0 audit — error c
 **LS outage banner in Billing.tsx:** `LsOutageBanner` queries `billingApi.getLsStatus()` (staleTime 2min). Shows yellow banner + link to status.lemonsqueezy.com when `available === false`.
 
 **billingApi added to api.ts:** `getLsStatus()` and `checkDowngrade(newTier)`.
+
+---
+
+## Fourth-pass gaps (all implemented)
+
+**PDF attachment in sendReportEmail (reports.ts):** dynamically imports `generatePDF`, generates buffer, attaches via Resend `attachments: [{ filename, content: pdfBuffer }]`. PDF failure is caught + logged — email still sends without attachment rather than failing entirely. Email body template now respects `client.emailBodyTemplate` with `{client}`, `{contact}`, `{date}` substitutions.
+
+**LinkedIn "Coming Soon" connector card (Connectors.tsx):** `PLATFORMS` array has `comingSoon: true` on `linkedin_ads`. Card rendered with muted border, descriptive copy ("MDP Standard Tier API approval in review"), clock icon badge, and a disabled "Coming Soon" button. The `handleConnect` guard still exits early for LinkedIn without showing a toast.
+
+**`connector_connected` PostHog on callback (Connectors.tsx):** `useEffect` on mount reads `?success=platform` query param via `useSearchParams`. Fires `trackEvent('connector_connected', { platform: success })` and `toast.success(...)` on success, fires `toast.error(...)` with human-readable message on `?error=...`. Clears both params from URL with `setSearchParams({}, { replace: true })`. Previously fired on OAuth start — now fires only on actual callback completion.
+
+**Client paused status + anomaly alerts toggle (ClientSettings.tsx + clients.ts):** Added `status: z.enum(['active', 'paused']).optional()` to `updateClientSchema`. UI has Pause/Resume button (yellow/green border) that calls `clientsApi.update(id, { status })`. Anomaly alerts toggle calls `clientsApi.update(id, { anomalyAlertsEnabled })` and shows Bell/BellOff icon. "Paused" badge appears in the header when client is paused.
+
+**"Connect [Platform]" CTA in ReportPreview:** Each platform section (GA4, Google Ads, Meta Ads) now shows a `ConnectPlatformCTA` dashed-border card if that platform has no `rawData`, instead of just hiding the section. Card links to `/connectors`. Not shown while report is generating.
+
+**report_exported PostHog — already existed (line 252):** `trackEvent('report_exported', ...)` was already firing in `handleExportPdf`. No change needed.

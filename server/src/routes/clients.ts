@@ -29,6 +29,7 @@ const updateClientSchema = z.object({
   emailSubjectTemplate: z.string().optional(),
   emailBodyTemplate: z.string().optional(),
   anomalyAlertsEnabled: z.boolean().optional(),
+  status: z.enum(['active', 'paused']).optional(),
   archivedAt: z.string().nullable().optional(),
 });
 

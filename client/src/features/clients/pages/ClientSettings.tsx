@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { ArrowLeft, Save, Archive } from 'lucide-react';
+import { ArrowLeft, Save, Archive, PauseCircle, PlayCircle, Bell, BellOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { clientsApi } from '../../../lib/api';
 import { PageLoader } from '../../../components/shared/LoadingSpinner';
@@ -12,7 +12,10 @@ export default function ClientSettings() {
   const qc = useQueryClient();
 
   const { data: client, isLoading } = useQuery(['client', id], () => clientsApi.get(id!));
-  const [form, setForm] = useState({ name: '', industry: '', websiteUrl: '', contactName: '', contactEmail: '', emailSubjectTemplate: '', emailBodyTemplate: '' });
+  const [form, setForm] = useState({
+    name: '', industry: '', websiteUrl: '', contactName: '',
+    contactEmail: '', emailSubjectTemplate: '', emailBodyTemplate: '',
+  });
 
   useEffect(() => {
     if (client) setForm({
@@ -28,7 +31,13 @@ export default function ClientSettings() {
 
   const updateMutation = useMutation(
     (data: any) => clientsApi.update(id!, data),
-    { onSuccess: () => { qc.invalidateQueries(['client', id]); toast.success('Settings saved'); } }
+    {
+      onSuccess: () => {
+        qc.invalidateQueries(['client', id]);
+        qc.invalidateQueries('clients');
+        toast.success('Settings saved');
+      },
+    }
   );
 
   const archiveMutation = useMutation(
@@ -36,7 +45,32 @@ export default function ClientSettings() {
     { onSuccess: () => { toast.success('Client archived'); navigate('/dashboard'); } }
   );
 
+  const pauseMutation = useMutation(
+    (status: 'active' | 'paused') => clientsApi.update(id!, { status }),
+    {
+      onSuccess: (_data, status) => {
+        qc.invalidateQueries(['client', id]);
+        qc.invalidateQueries('clients');
+        toast.success(status === 'paused' ? 'Client paused — reports and anomaly alerts suspended' : 'Client resumed');
+      },
+      onError: () => toast.error('Failed to update client status'),
+    }
+  );
+
+  const anomalyMutation = useMutation(
+    (enabled: boolean) => clientsApi.update(id!, { anomalyAlertsEnabled: enabled }),
+    {
+      onSuccess: (_data, enabled) => {
+        qc.invalidateQueries(['client', id]);
+        toast.success(enabled ? 'Anomaly alerts enabled' : 'Anomaly alerts disabled');
+      },
+    }
+  );
+
   if (isLoading) return <PageLoader />;
+
+  const isPaused = client?.status === 'paused';
+  const anomalyEnabled = client?.anomalyAlertsEnabled !== false;
 
   return (
     <div className="max-w-2xl mx-auto animate-fade-in">
@@ -48,6 +82,11 @@ export default function ClientSettings() {
           <h1 className="text-xl font-bold text-white">Client Settings</h1>
           <p className="text-xs text-[#94A3B8]">{client?.name}</p>
         </div>
+        {isPaused && (
+          <span className="ml-auto text-xs bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 px-2 py-0.5 rounded-full">
+            Paused
+          </span>
+        )}
       </div>
 
       <div className="space-y-6">
@@ -93,11 +132,34 @@ export default function ClientSettings() {
                 className="w-full bg-[#0F172A] border border-[#334155] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#475569] focus:outline-none focus:border-[#6366F1] resize-none"
                 placeholder="Hi {contact}, please find your performance report attached..."
               />
+              <p className="text-[10px] text-[#475569] mt-1">Variables: {'{client}'}, {'{contact}'}, {'{date}'}</p>
             </div>
           </div>
         </div>
 
-        <div className="flex gap-3">
+        {/* Anomaly Alerts */}
+        <div className="card p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Anomaly Alerts</h2>
+              <p className="text-xs text-[#64748B] mt-0.5">Get emailed when a metric shifts ±20% vs. the prior period</p>
+            </div>
+            <button
+              onClick={() => anomalyMutation.mutate(!anomalyEnabled)}
+              disabled={anomalyMutation.isLoading}
+              className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                anomalyEnabled
+                  ? 'bg-[#6366F1]/10 border-[#6366F1]/30 text-[#6366F1] hover:bg-[#6366F1]/20'
+                  : 'border-[#334155] text-[#64748B] hover:border-[#475569] hover:text-white'
+              }`}
+            >
+              {anomalyEnabled ? <Bell size={12} /> : <BellOff size={12} />}
+              {anomalyEnabled ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-3 flex-wrap">
           <button
             onClick={() => updateMutation.mutate(form)}
             disabled={updateMutation.isLoading}
@@ -105,8 +167,24 @@ export default function ClientSettings() {
           >
             <Save size={14} /> {updateMutation.isLoading ? 'Saving...' : 'Save Changes'}
           </button>
+
           <button
-            onClick={() => { if (confirm('Archive this client? They will no longer count toward your limit.')) archiveMutation.mutate(); }}
+            onClick={() => pauseMutation.mutate(isPaused ? 'active' : 'paused')}
+            disabled={pauseMutation.isLoading}
+            className={`flex items-center gap-2 border text-sm font-medium px-4 py-2.5 rounded-lg transition-colors ${
+              isPaused
+                ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
+                : 'border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10'
+            }`}
+          >
+            {isPaused ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
+            {isPaused ? 'Resume Client' : 'Pause Client'}
+          </button>
+
+          <button
+            onClick={() => {
+              if (confirm('Archive this client? They will no longer count toward your limit.')) archiveMutation.mutate();
+            }}
             className="flex items-center gap-2 border border-red-500/30 hover:bg-red-500/10 text-red-400 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ml-auto"
           >
             <Archive size={14} /> Archive Client

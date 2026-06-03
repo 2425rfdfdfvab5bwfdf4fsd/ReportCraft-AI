@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { Plug, Plus, Trash2, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Plug, Plus, Trash2, CheckCircle, XCircle, AlertCircle, RefreshCw, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { connectorsApi, connectorsRefreshApi } from '../../../lib/api';
 import { trackEvent } from '../../../lib/posthog';
@@ -12,7 +13,7 @@ const PLATFORMS = [
   { id: 'google_analytics', name: 'Google Analytics 4', logo: '📊', color: '#E37400', desc: 'Sessions, users, bounce rate, conversions' },
   { id: 'google_ads', name: 'Google Ads', logo: '🎯', color: '#4285F4', desc: 'CTR, CPC, ROAS, conversions, spend' },
   { id: 'meta_ads', name: 'Meta Ads', logo: '📘', color: '#1877F2', desc: 'Reach, impressions, CTR, CPM, ROAS' },
-  { id: 'linkedin_ads', name: 'LinkedIn Ads', logo: '💼', color: '#0A66C2', desc: 'Impressions, clicks, conversions, leads' },
+  { id: 'linkedin_ads', name: 'LinkedIn Ads', logo: '💼', color: '#0A66C2', desc: 'Impressions, clicks, conversions, leads', comingSoon: true },
 ];
 
 function AddDemoModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
@@ -57,8 +58,30 @@ function AddDemoModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
 export default function Connectors() {
   const qc = useQueryClient();
   const [showDemo, setShowDemo] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const { data: tokens, isLoading } = useQuery('connectors', connectorsApi.list);
+
+  useEffect(() => {
+    const success = searchParams.get('success');
+    const error = searchParams.get('error');
+
+    if (success) {
+      trackEvent('connector_connected', { platform: success });
+      toast.success(`${success.replace(/_/g, ' ')} connected successfully!`);
+      qc.invalidateQueries('connectors');
+      setSearchParams({}, { replace: true });
+    } else if (error) {
+      const msgs: Record<string, string> = {
+        cancelled: 'OAuth cancelled — no changes made.',
+        invalid_state: 'OAuth session expired. Please try again.',
+        oauth_failed: 'Connection failed. Check your OAuth credentials.',
+        linkedin_not_available: 'LinkedIn Ads is coming soon.',
+      };
+      toast.error(msgs[error] || `Connection error: ${error}`);
+      setSearchParams({}, { replace: true });
+    }
+  }, []);
 
   const removeMutation = useMutation(connectorsApi.remove, {
     onSuccess: () => { qc.invalidateQueries('connectors'); toast.success('Connector removed'); },
@@ -78,7 +101,6 @@ export default function Connectors() {
       } else if (platform === 'meta_ads') {
         urlData = await connectorsApi.getMetaAuthUrl();
       } else if (platform === 'linkedin_ads') {
-        toast('LinkedIn Ads connector is coming soon. Add a demo connector for now.', { duration: 4000 });
         return;
       }
 
@@ -88,7 +110,6 @@ export default function Connectors() {
         return;
       }
       window.open(urlData.url, '_blank', 'width=600,height=700');
-      trackEvent('connector_connected', { platform });
     } catch {
       toast.error('Failed to start OAuth flow');
     }
@@ -130,6 +151,31 @@ export default function Connectors() {
           const connected = connectedByPlatform[platform.id] || [];
           const isConnected = connected.length > 0;
           const hasError = connected.some((t: any) => t.status === 'error');
+
+          if (platform.comingSoon) {
+            return (
+              <div key={platform.id} className="card p-5 border border-[#334155] opacity-70 relative overflow-hidden">
+                <div className="absolute top-3 right-3">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold bg-[#6366F1]/15 border border-[#6366F1]/30 text-[#6366F1] px-2 py-0.5 rounded-full">
+                    <Clock size={9} /> Coming Soon
+                  </span>
+                </div>
+                <div className="flex items-start gap-3 mb-3">
+                  <span className="text-2xl">{platform.logo}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-white">{platform.name}</p>
+                    <p className="text-xs text-[#64748B]">{platform.desc}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-[#475569] mb-3">
+                  LinkedIn Ads requires MDP Standard Tier API approval. Integration is in review and will be available on the Agency plan.
+                </p>
+                <button disabled className="w-full text-xs font-medium py-2 rounded-lg border border-[#334155] text-[#475569] cursor-not-allowed">
+                  Coming Soon
+                </button>
+              </div>
+            );
+          }
 
           return (
             <div key={platform.id} className={`card p-5 border ${hasError ? 'border-red-500/30' : isConnected ? 'border-green-500/20' : 'border-[#334155]'}`}>

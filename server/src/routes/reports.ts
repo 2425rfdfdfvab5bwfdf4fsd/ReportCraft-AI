@@ -335,12 +335,33 @@ async function sendReportEmail(deliveryId: string, report: any, emailTo: string)
     const agency = await prisma.agency.findUnique({ where: { id: report.agencyId } });
     const dateRange = `${new Date(report.dateRangeStart).toLocaleDateString()} - ${new Date(report.dateRangeEnd).toLocaleDateString()}`;
 
+    const clientName = report.client?.name || 'Client';
+    const contactName = report.client?.contactName || clientName;
+    const agencyName = agency?.name || 'ReportCraft AI';
+
+    const bodyTemplate = report.client?.emailBodyTemplate;
+    const htmlBody = bodyTemplate
+      ? bodyTemplate.replace(/\{client\}/g, clientName).replace(/\{contact\}/g, contactName).replace(/\{date\}/g, dateRange).replace(/\n/g, '<br>')
+      : `<p>Hi ${contactName},</p><p>Please find your performance report for ${dateRange} attached.</p><p>Best regards,<br>${agencyName}</p>`;
+
+    const filename = `${clientName.replace(/\s+/g, '-')}-Report-${new Date(report.dateRangeStart).toISOString().slice(0, 10)}.pdf`;
+
+    let attachments: any[] = [];
+    try {
+      const { generatePDF } = await import('../services/pdf.service');
+      const pdfBuffer = await generatePDF(report, agency, report.client);
+      attachments = [{ filename, content: pdfBuffer }];
+    } catch (pdfErr) {
+      console.error('PDF generation for email failed, sending without attachment:', pdfErr);
+    }
+
     const { data, error } = await resend.emails.send({
-      from: `${agency?.name || 'ReportCraft AI'} <reports@reportcraft.ai>`,
+      from: `${agencyName} <reports@reportcraft.ai>`,
       to: [emailTo],
-      subject: report.client.emailSubjectTemplate?.replace('{client}', report.client.name).replace('{date}', dateRange)
-        || `${report.client.name} — Performance Report — ${dateRange}`,
-      html: `<p>Hi ${report.client.contactName},</p><p>Please find your performance report for ${dateRange} attached.</p><p>Best regards,<br>${agency?.name}</p>`,
+      subject: report.client?.emailSubjectTemplate?.replace('{client}', clientName).replace('{date}', dateRange)
+        || `${clientName} — Performance Report — ${dateRange}`,
+      html: htmlBody,
+      ...(attachments.length > 0 && { attachments }),
     });
 
     await prisma.reportDelivery.update({

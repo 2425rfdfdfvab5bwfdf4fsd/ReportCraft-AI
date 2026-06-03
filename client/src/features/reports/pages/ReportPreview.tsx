@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { ArrowLeft, Download, Send, RefreshCw, ThumbsUp, ThumbsDown, Share2, ExternalLink, Calendar } from 'lucide-react';
+import { ArrowLeft, Download, Send, RefreshCw, ThumbsUp, ThumbsDown, Share2, ExternalLink, Calendar, Plug } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { reportsApi } from '../../../lib/api';
 import { trackEvent } from '../../../lib/posthog';
@@ -33,6 +33,27 @@ function NarrativeSection({ title, body, color }: { title: string; body: string;
     <div className="card p-5 mb-3">
       <h4 className="text-sm font-semibold mb-2" style={{ color }}>{title}</h4>
       <p className="text-sm text-[#CBD5E1] leading-relaxed">{body}</p>
+    </div>
+  );
+}
+
+function ConnectPlatformCTA({ platform, platformId, brandColor }: { platform: string; platformId: string; brandColor: string }) {
+  return (
+    <div className="mb-4 rounded-xl border border-dashed border-[#334155] p-5 flex items-center gap-4">
+      <div className="w-9 h-9 rounded-lg bg-[#1E293B] flex items-center justify-center shrink-0">
+        <Plug size={16} className="text-[#475569]" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-[#94A3B8]">{platform} not connected</p>
+        <p className="text-xs text-[#475569] mt-0.5">Connect this platform to include its data in future reports</p>
+      </div>
+      <Link
+        to="/connectors"
+        className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors"
+        style={{ borderColor: brandColor + '50', color: brandColor }}
+      >
+        Connect →
+      </Link>
     </div>
   );
 }
@@ -429,7 +450,7 @@ export default function ReportPreview() {
               </div>
 
               {/* GA4 Metrics */}
-              {rawData?.ga4 && (
+              {rawData?.ga4 ? (
                 <div className="mb-4">
                   <h3 className="text-sm font-semibold mb-2 flex items-center gap-2" style={{ color: brandColor }}>
                     <span className="w-2 h-2 rounded-full" style={{ background: brandColor }} />
@@ -442,10 +463,12 @@ export default function ReportPreview() {
                     <MetricCard label="Conv. Rate" value={rawData.ga4.conversionRate * 100} prev={rawData.ga4.conversionRatePrev * 100} suffix="%" />
                   </div>
                 </div>
+              ) : !isGenerating && (
+                <ConnectPlatformCTA platform="Google Analytics 4" platformId="ga4" brandColor={brandColor} />
               )}
 
               {/* Google Ads Metrics */}
-              {rawData?.googleAds && (
+              {rawData?.googleAds ? (
                 <div className="mb-4">
                   <h3 className="text-sm font-semibold mb-2 flex items-center gap-2" style={{ color: brandColor }}>
                     <span className="w-2 h-2 rounded-full" style={{ background: brandColor }} />
@@ -458,10 +481,12 @@ export default function ReportPreview() {
                     <MetricCard label="Conversions" value={rawData.googleAds.conversions} prev={rawData.googleAds.conversionsPrev} />
                   </div>
                 </div>
+              ) : !isGenerating && (
+                <ConnectPlatformCTA platform="Google Ads" platformId="google_ads" brandColor={brandColor} />
               )}
 
               {/* Meta Metrics */}
-              {rawData?.meta && (
+              {rawData?.meta ? (
                 <div className="mb-4">
                   <h3 className="text-sm font-semibold mb-2 flex items-center gap-2" style={{ color: brandColor }}>
                     <span className="w-2 h-2 rounded-full" style={{ background: brandColor }} />
@@ -474,6 +499,8 @@ export default function ReportPreview() {
                     <MetricCard label="CPM" value={rawData.meta.cpm} prev={rawData.meta.cpmPrev} prefix="$" invert />
                   </div>
                 </div>
+              ) : !isGenerating && (
+                <ConnectPlatformCTA platform="Meta Ads" platformId="meta_ads" brandColor={brandColor} />
               )}
 
               {/* AI Narrative */}
