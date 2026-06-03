@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { authMiddleware } from './middleware/auth.middleware';
+import { readOnlyGuard } from './middleware/readonly.middleware';
 import agenciesRouter from './routes/agencies';
 import clientsRouter from './routes/clients';
 import reportsRouter from './routes/reports';
@@ -11,6 +12,7 @@ import pdfRouter from './routes/pdf';
 import connectorsRouter from './routes/connectors';
 import webhooksRouter from './routes/webhooks';
 import teamRouter from './routes/team';
+import referralsRouter from './routes/referrals';
 
 const app = express();
 
@@ -19,7 +21,7 @@ app.set('trust proxy', 1);
 
 // Security middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for SPA
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
 
@@ -63,12 +65,14 @@ app.get('/api/public/reports/:shareToken', async (req, res) => {
 
 // Protected API routes
 app.use('/api', authLimiter, authMiddleware as any);
+app.use('/api', readOnlyGuard as any);
 app.use('/api/agencies', agenciesRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/reports', pdfRouter);
 app.use('/api/connectors', connectorsRouter);
 app.use('/api/team', teamRouter);
+app.use('/api/referrals', referralsRouter);
 
 // Serve React frontend in production
 const distPath = path.join(__dirname, '../../client/dist');

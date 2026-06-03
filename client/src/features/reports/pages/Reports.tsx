@@ -46,7 +46,7 @@ export default function Reports() {
                   <td className="px-4 py-3 text-sm">{r.narrativeRating === 'up' ? '👍' : r.narrativeRating === 'down' ? '👎' : '—'}</td>
                   <td className="px-4 py-3 text-xs text-[#64748B]">{formatRelative(r.createdAt)}</td>
                   <td className="px-4 py-3">
-                    {r.status === 'complete' && (
+                    {r.status === 'ready' && (
                       <Link to={`/reports/${r.id}`} className="text-xs text-[#6366F1] hover:text-[#4F46E5] font-medium">View →</Link>
                     )}
                   </td>

@@ -36,9 +36,9 @@ enum TokenStatus {
 }
 
 enum ReportStatus {
-  pending
+  draft
   generating
-  complete
+  ready
   error
 }
 
@@ -66,53 +66,55 @@ enum DeliveryStatus {
 }
 
 model Agency {
-  id                       String             @id @default(cuid())
-  clerkUserId              String             @unique
-  name                     String?
-  slug                     String?            @unique
-  logoUrl                  String?
-  brandColor               String?            @default("#6366F1")
-  timezone                 String?            @default("America/New_York")
-  narrativeTone            NarrativeTone      @default(professional)
-  anomalyAlertsEnabled     Boolean            @default(true)
-  subscriptionTier         SubscriptionTier   @default(FREE_TRIAL)
-  subscriptionStatus       SubscriptionStatus @default(trial)
-  lemonSqueezyCustomerId   String?
+  id                         String             @id @default(cuid())
+  clerkUserId                String             @unique
+  name                       String?
+  slug                       String?            @unique
+  logoUrl                    String?
+  brandColor                 String?            @default("#6366F1")
+  timezone                   String?            @default("America/New_York")
+  narrativeTone              NarrativeTone      @default(professional)
+  anomalyAlertsEnabled       Boolean            @default(true)
+  subscriptionTier           SubscriptionTier   @default(FREE_TRIAL)
+  subscriptionStatus         SubscriptionStatus @default(trial)
+  lemonSqueezyCustomerId     String?
   lemonSqueezySubscriptionId String?
-  lemonSqueezyVariantId    String?
-  currentPeriodEnd         DateTime?
-  trialEndsAt              DateTime?
-  aiReportsUsedThisMonth   Int                @default(0)
-  onboardingCompletedAt    DateTime?
-  referralCode             String?            @unique
-  referredByCode           String?
-  createdAt                DateTime           @default(now())
-  updatedAt                DateTime           @updatedAt
+  lemonSqueezyVariantId      String?
+  currentPeriodEnd           DateTime?
+  trialEndsAt                DateTime?
+  pastDueAt                  DateTime?
+  aiReportsUsedThisMonth     Int                @default(0)
+  onboardingCompletedAt      DateTime?
+  referralCode               String?            @unique
+  referredByCode             String?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
 
-  clients         Client[]
-  oauthTokens     OAuthToken[]
-  reports         Report[]
+  clients          Client[]
+  oauthTokens      OAuthToken[]
+  reports          Report[]
   reportDeliveries ReportDelivery[]
-  teamMembers     TeamMember[]
+  teamMembers      TeamMember[]
 }
 
 model Client {
-  id                   String    @id @default(cuid())
-  agencyId             String
-  name                 String
-  industry             String?
-  websiteUrl           String?
-  contactName          String
-  contactEmail         String
-  goals                Json?
-  emailSubjectTemplate String?
-  emailBodyTemplate    String?
-  reportSchedule       String?
+  id                     String    @id @default(cuid())
+  agencyId               String
+  name                   String
+  industry               String?
+  websiteUrl             String?
+  contactName            String
+  contactEmail           String
+  goals                  Json?
+  emailSubjectTemplate   String?
+  emailBodyTemplate      String?
+  reportSchedule         String?
   reportScheduleTimezone String?
-  anomalyAlertsEnabled Boolean   @default(true)
-  archivedAt           DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  anomalyAlertsEnabled   Boolean   @default(true)
+  lastReportAt           DateTime?
+  archivedAt             DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   agency           Agency           @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   clientConnectors ClientConnector[]
@@ -124,19 +126,20 @@ model Client {
 }
 
 model OAuthToken {
-  id                   String            @id @default(cuid())
-  agencyId             String
-  platform             ConnectorPlatform
-  accountId            String
-  accountName          String
-  encryptedAccessToken String
+  id                    String            @id @default(cuid())
+  agencyId              String
+  platform              ConnectorPlatform
+  accountId             String
+  accountName           String
+  encryptedAccessToken  String
   encryptedRefreshToken String?
-  tokenExpiresAt       DateTime?
-  scopes               String[]
-  status               TokenStatus       @default(active)
-  lastRefreshedAt      DateTime?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  tokenExpiresAt        DateTime?
+  scopes                String[]
+  status                TokenStatus       @default(active)
+  errorMessage          String?
+  lastRefreshedAt       DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
   agency           Agency            @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   clientConnectors ClientConnector[]
@@ -158,27 +161,27 @@ model ClientConnector {
 }
 
 model Report {
-  id                   String        @id @default(cuid())
-  agencyId             String
-  clientId             String
-  dateRangeStart       DateTime
-  dateRangeEnd         DateTime
-  status               ReportStatus  @default(pending)
-  narrativeTone        NarrativeTone @default(professional)
-  rawData              Json?
-  narrative            Json?
-  generationDurationMs Int?
-  aiProvider           String?
-  narrativeRating      String?
+  id                     String        @id @default(cuid())
+  agencyId               String
+  clientId               String
+  dateRangeStart         DateTime
+  dateRangeEnd           DateTime
+  status                 ReportStatus  @default(draft)
+  narrativeTone          NarrativeTone @default(professional)
+  rawData                Json?
+  narrative              Json?
+  generationDurationMs   Int?
+  aiModel                String?
+  narrativeRating        String?
   narrativeRatingSection String?
-  narrativeRatingNote  String?
-  shareToken           String?       @unique
-  shareEnabled         Boolean       @default(false)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  narrativeRatingNote    String?
+  shareToken             String?       @unique
+  shareEnabled           Boolean       @default(false)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
-  agency    Agency           @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-  client    Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agency     Agency           @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client     Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
   deliveries ReportDelivery[]
 
   @@index([clientId])
@@ -201,12 +204,13 @@ model ReportDelivery {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  report  Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  agency  Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-  client  Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([reportId])
   @@index([agencyId])
+  @@index([clientId, agencyId])
 }
 
 model TeamMember {
@@ -225,4 +229,5 @@ model TeamMember {
   agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
 
   @@index([agencyId, removedAt])
+  @@index([agencyId, role])
 }

@@ -162,7 +162,7 @@ export default function Dashboard() {
                         {client.reportSchedule || '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <StatusBadge status={client.archivedAt ? 'cancelled' : lastReport ? lastReport.status : 'pending'} dot />
+                        <StatusBadge status={client.archivedAt ? 'cancelled' : lastReport ? lastReport.status : 'draft'} dot />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button

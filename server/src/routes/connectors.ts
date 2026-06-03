@@ -31,7 +31,8 @@ router.get('/', async (req: Request, res: Response) => {
     where: { agencyId: req.agencyId },
     select: {
       id: true, platform: true, accountId: true, accountName: true,
-      tokenExpiresAt: true, status: true, lastRefreshedAt: true, createdAt: true,
+      tokenExpiresAt: true, status: true, errorMessage: true,
+      lastRefreshedAt: true, createdAt: true,
     },
   });
   res.json(tokens);
@@ -156,6 +157,79 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
   } catch (e) {
     console.error('Meta callback error:', e);
     res.redirect(`${frontendUrl}/connectors?error=oauth_failed`);
+  }
+});
+
+// LinkedIn OAuth (stub — requires MDP Standard Tier approval)
+router.get('/linkedin/auth-url', async (req: Request, res: Response) => {
+  return res.json({
+    url: null,
+    comingSoon: true,
+    message: 'LinkedIn Ads connector requires MDP Standard Tier approval. Coming soon.',
+  });
+});
+
+router.get('/linkedin/callback', async (req: Request, res: Response) => {
+  const frontendUrl = process.env.FRONTEND_URL || `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  return res.redirect(`${frontendUrl}/connectors?error=linkedin_not_available`);
+});
+
+// Manual token refresh
+router.post('/:id/refresh', async (req: Request, res: Response) => {
+  const token = await prisma.oAuthToken.findFirst({
+    where: { id: req.params.id, agencyId: req.agencyId },
+  });
+  if (!token) return res.status(404).json({ error: 'Connector not found' });
+  if (!token.encryptedRefreshToken) {
+    return res.status(400).json({ error: 'No refresh token available for this connector' });
+  }
+
+  try {
+    const refreshToken = decrypt(token.encryptedRefreshToken);
+    let newAccessToken: string;
+    let expiresIn: number;
+
+    if (token.platform === 'google_analytics' || token.platform === 'google_ads') {
+      const res2 = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: process.env.GOOGLE_CLIENT_ID || '',
+          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+      const data = await res2.json() as any;
+      if (data.error) throw new Error(data.error_description || data.error);
+      newAccessToken = data.access_token;
+      expiresIn = data.expires_in || 3600;
+    } else {
+      return res.status(400).json({ error: `Token refresh not supported for platform: ${token.platform}` });
+    }
+
+    const updated = await prisma.oAuthToken.update({
+      where: { id: token.id },
+      data: {
+        encryptedAccessToken: encrypt(newAccessToken),
+        tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
+        lastRefreshedAt: new Date(),
+        status: 'active',
+        errorMessage: null,
+      },
+      select: {
+        id: true, platform: true, accountName: true, status: true,
+        tokenExpiresAt: true, lastRefreshedAt: true,
+      },
+    });
+
+    res.json(updated);
+  } catch (e: any) {
+    await prisma.oAuthToken.update({
+      where: { id: token.id },
+      data: { status: 'error', errorMessage: e.message },
+    });
+    res.status(500).json({ error: 'Token refresh failed', message: e.message });
   }
 });
 

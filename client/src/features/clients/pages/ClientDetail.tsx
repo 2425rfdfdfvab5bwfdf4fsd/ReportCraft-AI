@@ -143,7 +143,7 @@ export default function ClientDetail() {
                         {report.narrativeRating && ` · ${report.narrativeRating === 'up' ? '👍' : '👎'}`}
                       </p>
                     </div>
-                    {report.status === 'complete' && (
+                    {report.status === 'ready' && (
                       <Link
                         to={`/reports/${report.id}`}
                         className="text-xs bg-[#334155] hover:bg-[#475569] text-white px-3 py-1.5 rounded-lg font-medium transition-colors"

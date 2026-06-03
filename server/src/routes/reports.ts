@@ -82,21 +82,19 @@ router.post('/', async (req: Request, res: Response) => {
 async function generateReportAsync(reportId: string, client: any, tone: string) {
   const startTime = Date.now();
   try {
-    // Build mock data (in production, this would fetch from real APIs)
     const rawData: NarrativeData = generateMockData();
 
     let narrativeResult;
-    let aiProvider = 'mock';
+    let aiModel = 'mock';
 
     if (process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
       try {
-        const agency = await prisma.report.findUnique({ where: { id: reportId }, include: { client: true } });
         const result = await generateNarrative(rawData, tone, client.name, client.goals);
         narrativeResult = result.result;
-        aiProvider = result.provider;
+        aiModel = result.model;
       } catch (e) {
         narrativeResult = generateMockNarrative(client.name);
-        aiProvider = 'mock_fallback';
+        aiModel = 'mock_fallback';
       }
     } else {
       narrativeResult = generateMockNarrative(client.name);
@@ -105,12 +103,18 @@ async function generateReportAsync(reportId: string, client: any, tone: string) 
     await prisma.report.update({
       where: { id: reportId },
       data: {
-        status: 'complete',
+        status: 'ready',
         rawData: rawData as any,
         narrative: narrativeResult as any,
-        aiProvider,
+        aiModel,
         generationDurationMs: Date.now() - startTime,
       },
+    });
+
+    // Update client lastReportAt
+    await prisma.client.update({
+      where: { id: client.id },
+      data: { lastReportAt: new Date() },
     });
   } catch (e) {
     console.error('Report generation failed:', e);
@@ -261,7 +265,6 @@ router.post('/:id/send', async (req: Request, res: Response) => {
     },
   });
 
-  // Send email async
   sendReportEmail(delivery.id, report, emailTo).catch(console.error);
 
   res.status(201).json(delivery);
@@ -308,14 +311,5 @@ async function sendReportEmail(deliveryId: string, report: any, emailTo: string)
     });
   }
 }
-
-router.get('/public/:shareToken', async (req: Request, res: Response) => {
-  const report = await prisma.report.findFirst({
-    where: { shareToken: req.params.shareToken, shareEnabled: true },
-    include: { client: { select: { name: true } }, agency: { select: { name: true, logoUrl: true, brandColor: true } } },
-  });
-  if (!report) return res.status(404).json({ error: 'Report not found' });
-  res.json(report);
-});
 
 export default router;

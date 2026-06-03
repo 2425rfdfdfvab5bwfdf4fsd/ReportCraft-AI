@@ -83,6 +83,7 @@ router.post('/lemonsqueezy', async (req: Request, res: Response) => {
 
     const variantId = String(data?.attributes?.variant_id || '');
     const tier = TIER_MAP[variantId];
+    const lsStatus = data?.attributes?.status;
 
     if (eventName === 'subscription_created' || eventName === 'subscription_updated') {
       if (!tier) {
@@ -90,20 +91,43 @@ router.post('/lemonsqueezy', async (req: Request, res: Response) => {
         return res.json({ received: true });
       }
 
+      const isPastDue = lsStatus === 'past_due';
       await prisma.agency.update({
         where: { id: agencyId },
         data: {
           subscriptionTier: tier as any,
-          subscriptionStatus: data?.attributes?.status === 'active' ? 'active' : 'past_due',
+          subscriptionStatus: isPastDue ? 'past_due' : 'active',
           lemonSqueezySubscriptionId: String(data?.id || ''),
           lemonSqueezyVariantId: variantId,
           currentPeriodEnd: data?.attributes?.renews_at ? new Date(data.attributes.renews_at) : null,
+          pastDueAt: isPastDue ? new Date() : null,
+        },
+      });
+    } else if (eventName === 'subscription_payment_failed') {
+      // Start the 3-day past_due grace period
+      await prisma.agency.update({
+        where: { id: agencyId },
+        data: {
+          subscriptionStatus: 'past_due',
+          pastDueAt: new Date(),
+        },
+      });
+    } else if (eventName === 'subscription_payment_success') {
+      // Clear past_due on successful payment
+      await prisma.agency.update({
+        where: { id: agencyId },
+        data: {
+          subscriptionStatus: 'active',
+          pastDueAt: null,
         },
       });
     } else if (eventName === 'subscription_cancelled') {
       await prisma.agency.update({
         where: { id: agencyId },
-        data: { subscriptionStatus: 'cancelled', currentPeriodEnd: data?.attributes?.ends_at ? new Date(data.attributes.ends_at) : null },
+        data: {
+          subscriptionStatus: 'cancelled',
+          currentPeriodEnd: data?.attributes?.ends_at ? new Date(data.attributes.ends_at) : null,
+        },
       });
     } else if (eventName === 'subscription_expired') {
       await prisma.agency.update({
@@ -120,7 +144,33 @@ router.post('/lemonsqueezy', async (req: Request, res: Response) => {
 });
 
 router.post('/resend', async (req: Request, res: Response) => {
+  const secret = process.env.RESEND_WEBHOOK_SECRET || '';
+
   try {
+    // Verify Resend webhook signature (HMAC-SHA256)
+    if (secret) {
+      const sig = req.headers['svix-signature'] as string;
+      const svixId = req.headers['svix-id'] as string;
+      const svixTimestamp = req.headers['svix-timestamp'] as string;
+
+      if (!sig || !svixId || !svixTimestamp) {
+        return res.status(400).json({ error: 'Missing Resend webhook headers' });
+      }
+
+      // Resend uses svix for webhook delivery — verify using svix
+      try {
+        const { Webhook } = await import('svix');
+        const wh = new Webhook(secret);
+        wh.verify(JSON.stringify(req.body), {
+          'svix-id': svixId,
+          'svix-timestamp': svixTimestamp,
+          'svix-signature': sig,
+        });
+      } catch {
+        return res.status(400).json({ error: 'Invalid Resend webhook signature' });
+      }
+    }
+
     const { type, data } = req.body;
     const emailId = data?.email_id;
     if (!emailId) return res.json({ received: true });

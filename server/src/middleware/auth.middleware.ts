@@ -14,20 +14,30 @@ declare global {
 const DEMO_CLERK_USER_ID = 'demo_user_replit';
 
 async function getDemoAgency() {
-  return prisma.agency.upsert({
-    where: { clerkUserId: DEMO_CLERK_USER_ID },
-    create: {
-      clerkUserId: DEMO_CLERK_USER_ID,
-      name: 'Demo Agency',
-      subscriptionTier: 'AGENCY',
-      subscriptionStatus: 'active',
-      trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      referralCode: 'DEMO1234',
-      onboardingCompletedAt: new Date(),
-      brandColor: '#6366F1',
-    },
-    update: {},
-  });
+  // Try to find first to avoid race-condition on upsert
+  const existing = await prisma.agency.findUnique({ where: { clerkUserId: DEMO_CLERK_USER_ID } });
+  if (existing) return existing;
+
+  try {
+    return await prisma.agency.create({
+      data: {
+        clerkUserId: DEMO_CLERK_USER_ID,
+        name: 'Demo Agency',
+        subscriptionTier: 'AGENCY',
+        subscriptionStatus: 'active',
+        trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        referralCode: 'DEMO1234',
+        onboardingCompletedAt: new Date(),
+        brandColor: '#6366F1',
+      },
+    });
+  } catch (e: any) {
+    // Race condition: another request created it first
+    if (e.code === 'P2002') {
+      return prisma.agency.findUniqueOrThrow({ where: { clerkUserId: DEMO_CLERK_USER_ID } });
+    }
+    throw e;
+  }
 }
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {

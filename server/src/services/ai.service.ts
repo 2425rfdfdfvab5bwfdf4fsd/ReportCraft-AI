@@ -1,8 +1,31 @@
 export interface NarrativeData {
-  ga4?: { sessions: number; sessionsPrev: number; bounceRate: number; bounceRatePrev: number; users: number; usersPrev: number; pageviews: number; pageviewsPrev: number; avgSessionDuration: number; avgSessionDurationPrev: number; conversionRate: number; conversionRatePrev: number; };
-  googleAds?: { impressions: number; impressionsPrev: number; clicks: number; clicksPrev: number; ctr: number; ctrPrev: number; spend: number; spendPrev: number; cpc: number; cpcPrev: number; conversions: number; conversionsPrev: number; conversionRate: number; conversionRatePrev: number; roas: number; roasPrev: number; };
-  meta?: { impressions: number; impressionsPrev: number; reach: number; reachPrev: number; clicks: number; clicksPrev: number; ctr: number; ctrPrev: number; spend: number; spendPrev: number; cpm: number; cpmPrev: number; roas: number; roasPrev: number; };
-  linkedin?: { impressions: number; impressionsPrev: number; clicks: number; clicksPrev: number; ctr: number; ctrPrev: number; spend: number; spendPrev: number; cpc: number; cpcPrev: number; conversions: number; conversionsPrev: number; };
+  ga4?: {
+    sessions: number; sessionsPrev: number;
+    bounceRate: number; bounceRatePrev: number;
+    users: number; usersPrev: number;
+    pageviews: number; pageviewsPrev: number;
+    avgSessionDuration: number; avgSessionDurationPrev: number;
+    conversionRate: number; conversionRatePrev: number;
+  };
+  googleAds?: {
+    impressions: number; impressionsPrev: number;
+    clicks: number; clicksPrev: number;
+    ctr: number; ctrPrev: number;
+    spend: number; spendPrev: number;
+    cpc: number; cpcPrev: number;
+    conversions: number; conversionsPrev: number;
+    conversionRate: number; conversionRatePrev: number;
+    roas: number; roasPrev: number;
+  };
+  meta?: {
+    impressions: number; impressionsPrev: number;
+    reach: number; reachPrev: number;
+    clicks: number; clicksPrev: number;
+    ctr: number; ctrPrev: number;
+    spend: number; spendPrev: number;
+    cpm: number; cpmPrev: number;
+    roas: number; roasPrev: number;
+  };
 }
 
 export interface NarrativeResult {
@@ -13,18 +36,22 @@ export interface NarrativeResult {
   recommendations: string;
 }
 
+const toneInstructions: Record<string, string> = {
+  professional: 'Write in a formal, data-driven tone. Use precise language and focus on measurable outcomes. Avoid colloquialisms.',
+  conversational: 'Write in a warm, accessible, first-person tone. Use "we" and "your" to create partnership. Make insights feel approachable.',
+  executive: 'Write in a concise, strategic, C-suite-focused tone. Lead with impact and bottom-line implications. Bullet-point thinking in prose form.',
+};
+
+function delta(current: number | undefined, previous: number | undefined): string {
+  if (!current || !previous || previous === 0) return '0.0%';
+  const pct = ((current - previous) / previous) * 100;
+  return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+}
+
 function buildPrompt(data: NarrativeData, tone: string, clientName: string, goals?: any): string {
-  const toneInstructions: Record<string, string> = {
-    professional: 'Use professional, data-driven language. Be precise and authoritative.',
-    conversational: 'Use friendly, accessible language. Avoid jargon. Write like you\'re talking to a colleague.',
-    executive: 'Use concise, high-level executive language. Focus on business impact and strategic implications.',
-  };
-
-  const delta = (current: number, prev: number) => prev === 0 ? 'N/A' : `${(((current - prev) / prev) * 100).toFixed(1)}%`;
-
   const metricsText = JSON.stringify({
     ...(data.ga4 && {
-      ga4: {
+      website_analytics: {
         sessions: data.ga4.sessions,
         sessions_change: delta(data.ga4.sessions, data.ga4.sessionsPrev),
         bounce_rate: (data.ga4.bounceRate * 100).toFixed(1) + '%',
@@ -93,7 +120,7 @@ export async function generateNarrative(
   tone: string,
   clientName: string,
   goals?: any
-): Promise<{ result: NarrativeResult; provider: string }> {
+): Promise<{ result: NarrativeResult; model: string }> {
   const prompt = buildPrompt(data, tone, clientName, goals);
 
   // Try OpenAI first (lazy import)
@@ -119,7 +146,7 @@ export async function generateNarrative(
       if (!content) throw new Error('Empty OpenAI response');
 
       const parsed = JSON.parse(content) as NarrativeResult;
-      return { result: parsed, provider: 'openai' };
+      return { result: parsed, model: `openai/${model}` };
     } catch (err: any) {
       const isRetryable = err?.status === 429 || err?.status === 500 || err?.status === 503 || err?.name === 'AbortError';
       if (!isRetryable) throw err;
@@ -152,7 +179,7 @@ export async function generateNarrative(
       if (!jsonMatch) throw new Error('No JSON in Anthropic response');
 
       const parsed = JSON.parse(jsonMatch[0]) as NarrativeResult;
-      return { result: parsed, provider: 'anthropic' };
+      return { result: parsed, model: `anthropic/${model}` };
     } catch (err: any) {
       console.error('Anthropic also failed:', err.message);
       throw new Error('Narrative generation failed. Please try again.');

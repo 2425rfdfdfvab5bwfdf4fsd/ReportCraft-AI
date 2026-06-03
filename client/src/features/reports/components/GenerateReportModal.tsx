@@ -55,7 +55,7 @@ export default function GenerateReportModal({ clientId, clientName, onClose, onS
 
         try {
           const report = await reportsApi.get(data.id);
-          if (report.status === 'complete') {
+          if (report.status === 'ready') {
             clearInterval(interval);
             setProgress(100);
             setProgressLabel('Report ready!');
