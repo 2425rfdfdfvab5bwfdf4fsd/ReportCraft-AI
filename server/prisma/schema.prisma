@@ -1,0 +1,228 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SubscriptionTier {
+  FREE_TRIAL
+  STARTER
+  AGENCY
+  AGENCY_PRO
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  cancelled
+  paused
+  trial
+}
+
+enum ConnectorPlatform {
+  google_analytics
+  google_ads
+  meta_ads
+  linkedin_ads
+}
+
+enum TokenStatus {
+  active
+  error
+  expired
+}
+
+enum ReportStatus {
+  pending
+  generating
+  complete
+  error
+}
+
+enum NarrativeTone {
+  professional
+  conversational
+  executive
+}
+
+enum TeamRole {
+  owner
+  admin
+  analyst
+  viewer
+}
+
+enum DeliveryStatus {
+  scheduled
+  sending
+  sent
+  delivered
+  opened
+  bounced
+  failed
+}
+
+model Agency {
+  id                       String             @id @default(cuid())
+  clerkUserId              String             @unique
+  name                     String?
+  slug                     String?            @unique
+  logoUrl                  String?
+  brandColor               String?            @default("#6366F1")
+  timezone                 String?            @default("America/New_York")
+  narrativeTone            NarrativeTone      @default(professional)
+  anomalyAlertsEnabled     Boolean            @default(true)
+  subscriptionTier         SubscriptionTier   @default(FREE_TRIAL)
+  subscriptionStatus       SubscriptionStatus @default(trial)
+  lemonSqueezyCustomerId   String?
+  lemonSqueezySubscriptionId String?
+  lemonSqueezyVariantId    String?
+  currentPeriodEnd         DateTime?
+  trialEndsAt              DateTime?
+  aiReportsUsedThisMonth   Int                @default(0)
+  onboardingCompletedAt    DateTime?
+  referralCode             String?            @unique
+  referredByCode           String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  clients         Client[]
+  oauthTokens     OAuthToken[]
+  reports         Report[]
+  reportDeliveries ReportDelivery[]
+  teamMembers     TeamMember[]
+}
+
+model Client {
+  id                   String    @id @default(cuid())
+  agencyId             String
+  name                 String
+  industry             String?
+  websiteUrl           String?
+  contactName          String
+  contactEmail         String
+  goals                Json?
+  emailSubjectTemplate String?
+  emailBodyTemplate    String?
+  reportSchedule       String?
+  reportScheduleTimezone String?
+  anomalyAlertsEnabled Boolean   @default(true)
+  archivedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  agency           Agency           @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  clientConnectors ClientConnector[]
+  reports          Report[]
+  reportDeliveries ReportDelivery[]
+
+  @@index([agencyId])
+  @@index([agencyId, archivedAt])
+}
+
+model OAuthToken {
+  id                   String            @id @default(cuid())
+  agencyId             String
+  platform             ConnectorPlatform
+  accountId            String
+  accountName          String
+  encryptedAccessToken String
+  encryptedRefreshToken String?
+  tokenExpiresAt       DateTime?
+  scopes               String[]
+  status               TokenStatus       @default(active)
+  lastRefreshedAt      DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  agency           Agency            @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  clientConnectors ClientConnector[]
+
+  @@index([agencyId])
+  @@index([agencyId, status])
+}
+
+model ClientConnector {
+  id           String   @id @default(cuid())
+  clientId     String
+  oauthTokenId String
+  createdAt    DateTime @default(now())
+
+  client     Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  oauthToken OAuthToken @relation(fields: [oauthTokenId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, oauthTokenId])
+}
+
+model Report {
+  id                   String        @id @default(cuid())
+  agencyId             String
+  clientId             String
+  dateRangeStart       DateTime
+  dateRangeEnd         DateTime
+  status               ReportStatus  @default(pending)
+  narrativeTone        NarrativeTone @default(professional)
+  rawData              Json?
+  narrative            Json?
+  generationDurationMs Int?
+  aiProvider           String?
+  narrativeRating      String?
+  narrativeRatingSection String?
+  narrativeRatingNote  String?
+  shareToken           String?       @unique
+  shareEnabled         Boolean       @default(false)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  agency    Agency           @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client    Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  deliveries ReportDelivery[]
+
+  @@index([clientId])
+  @@index([agencyId])
+  @@index([agencyId, createdAt(sort: Desc)])
+  @@index([clientId, dateRangeStart, dateRangeEnd, status])
+}
+
+model ReportDelivery {
+  id            String         @id @default(cuid())
+  reportId      String
+  agencyId      String
+  clientId      String
+  status        DeliveryStatus @default(scheduled)
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  openedAt      DateTime?
+  failureReason String?
+  resendEmailId String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  report  Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  agency  Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client  Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@index([agencyId])
+}
+
+model TeamMember {
+  id          String    @id @default(cuid())
+  agencyId    String
+  clerkUserId String?
+  email       String
+  name        String
+  role        TeamRole  @default(viewer)
+  invitedAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  removedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId, removedAt])
+}

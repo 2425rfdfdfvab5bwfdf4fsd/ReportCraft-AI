@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 15 23 42;
+    --foreground: 248 250 252;
+    --card: 30 41 59;
+    --card-foreground: 248 250 252;
+    --primary: 99 102 241;
+    --primary-foreground: 255 255 255;
+    --muted: 51 65 85;
+    --muted-foreground: 148 163 184;
+    --border: 51 65 85;
+    --input: 51 65 85;
+    --ring: 99 102 241;
+    --radius: 0.5rem;
+  }
+
+  .light {
+    --background: 248 250 252;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+    --muted: 226 232 240;
+    --muted-foreground: 100 116 139;
+    --border: 226 232 240;
+    --input: 226 232 240;
+  }
+
+  * { @apply border-border; }
+  body {
+    @apply bg-[#0F172A] text-[#F8FAFC] antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  .light body { @apply bg-[#F8FAFC] text-[#0F172A]; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-[#334155] rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-[#475569]; }
+}
+
+@layer utilities {
+  .card { @apply bg-[#1E293B] border border-[#334155] rounded-xl; }
+  .card-light { @apply bg-white border border-[#E2E8F0] rounded-xl; }
+  .gradient-primary { background: linear-gradient(135deg, #6366F1, #4F46E5); }
+  .text-gradient { background: linear-gradient(135deg, #6366F1, #8B5CF6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .shimmer { background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%); background-size: 200% 100%; @apply animate-shimmer; }
+}
