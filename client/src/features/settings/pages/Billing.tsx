@@ -1,6 +1,7 @@
 import { useQuery } from 'react-query';
-import { Check, CreditCard, ExternalLink, Zap } from 'lucide-react';
-import { agencyApi } from '../../../lib/api';
+import { Check, CreditCard, ExternalLink, Copy, Users, Gift } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { agencyApi, referralsApi } from '../../../lib/api';
 import { formatDate } from '../../../utils/format';
 import StatusBadge from '../../../components/shared/StatusBadge';
 import { PageLoader } from '../../../components/shared/LoadingSpinner';
@@ -12,10 +13,66 @@ const PLANS = [
 ];
 
 const LS_CHECKOUT_URLS: Record<string, string> = {
-  STARTER: process.env.NODE_ENV === 'production' ? 'https://reportcraftai.lemonsqueezy.com/checkout/starter' : '#',
+  STARTER: import.meta.env.PROD ? 'https://reportcraftai.lemonsqueezy.com/checkout/starter' : '#',
   AGENCY: '#',
   AGENCY_PRO: '#',
 };
+
+function ReferralSection({ agency }: { agency: any }) {
+  const isEligible = ['AGENCY', 'AGENCY_PRO'].includes(agency?.subscriptionTier);
+
+  const { data: referralData } = useQuery('referrals', referralsApi.getMe, {
+    enabled: isEligible,
+  });
+
+  if (!isEligible) return null;
+
+  const copyLink = () => {
+    if (referralData?.referralLink) {
+      navigator.clipboard.writeText(referralData.referralLink);
+      toast.success('Referral link copied!');
+    }
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Gift size={16} className="text-[#6366F1]" />
+        <h2 className="text-sm font-semibold text-white">Referral Program</h2>
+      </div>
+      <p className="text-xs text-[#94A3B8] mb-4">
+        Refer agencies to ReportCraft AI and earn 1 month free for each agency that converts to a paid plan.
+      </p>
+
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        {[
+          { label: 'Your Referral Code', value: referralData?.referralCode || '—' },
+          { label: 'Referrals Sent', value: referralData?.referralCount ?? 0 },
+          { label: 'Credits Earned', value: '—' },
+        ].map(stat => (
+          <div key={stat.label} className="bg-[#0F172A] rounded-lg p-3 text-center">
+            <p className="text-lg font-bold text-white">{stat.value}</p>
+            <p className="text-[10px] text-[#64748B] mt-0.5">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {referralData?.referralLink && (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 bg-[#0F172A] border border-[#334155] rounded-lg px-3 py-2 text-xs text-[#94A3B8] truncate font-mono">
+            {referralData.referralLink}
+          </div>
+          <button
+            onClick={copyLink}
+            className="flex items-center gap-1.5 px-3 py-2 border border-[#334155] hover:border-[#475569] text-[#94A3B8] hover:text-white rounded-lg text-xs transition-colors"
+          >
+            <Copy size={12} /> Copy
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Billing() {
   const { data: agency, isLoading } = useQuery('agency', agencyApi.get);
@@ -91,6 +148,11 @@ export default function Billing() {
             </div>
           );
         })}
+      </div>
+
+      {/* Referral Program (Agency / Agency Pro only) */}
+      <div className="mb-6">
+        <ReferralSection agency={agency} />
       </div>
 
       {/* Lemon Squeezy manage */}

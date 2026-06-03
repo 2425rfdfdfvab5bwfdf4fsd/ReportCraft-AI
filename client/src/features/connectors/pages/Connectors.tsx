@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { Plug, Plus, Trash2, CheckCircle, XCircle, AlertCircle, ExternalLink } from 'lucide-react';
+import { Plug, Plus, Trash2, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { connectorsApi } from '../../../lib/api';
+import { connectorsApi, connectorsRefreshApi } from '../../../lib/api';
+import { trackEvent } from '../../../lib/posthog';
 import { formatRelative } from '../../../utils/format';
 import EmptyState from '../../../components/shared/EmptyState';
 import { PageLoader } from '../../../components/shared/LoadingSpinner';
@@ -64,6 +65,11 @@ export default function Connectors() {
     onError: () => toast.error('Failed to remove connector'),
   });
 
+  const refreshMutation = useMutation(connectorsRefreshApi.refresh, {
+    onSuccess: () => { qc.invalidateQueries('connectors'); toast.success('Token refreshed'); },
+    onError: () => toast.error('Failed to refresh token'),
+  });
+
   const handleConnect = async (platform: string) => {
     try {
       let urlData: any;
@@ -71,8 +77,8 @@ export default function Connectors() {
         urlData = await connectorsApi.getGoogleAuthUrl(platform);
       } else if (platform === 'meta_ads') {
         urlData = await connectorsApi.getMetaAuthUrl();
-      } else {
-        toast('LinkedIn Ads connector coming soon — add a demo connector for now.');
+      } else if (platform === 'linkedin_ads') {
+        toast('LinkedIn Ads connector is coming soon. Add a demo connector for now.', { duration: 4000 });
         return;
       }
 
@@ -82,6 +88,7 @@ export default function Connectors() {
         return;
       }
       window.open(urlData.url, '_blank', 'width=600,height=700');
+      trackEvent('connector_connected', { platform });
     } catch {
       toast.error('Failed to start OAuth flow');
     }
@@ -150,6 +157,17 @@ export default function Connectors() {
                       <div className={`w-1.5 h-1.5 rounded-full ${t.status === 'active' ? 'bg-green-400' : 'bg-red-400'}`} />
                       <span className="text-xs text-[#CBD5E1] flex-1 truncate">{t.accountName}</span>
                       <span className="text-[10px] text-[#475569]">{formatRelative(t.createdAt)}</span>
+                      {t.status !== 'active' && (
+                        <button
+                          onClick={() => refreshMutation.mutate(t.id)}
+                          disabled={refreshMutation.isLoading}
+                          className="p-0.5 hover:text-yellow-400 text-red-400 transition-colors"
+                          aria-label="Refresh token"
+                          title="Reconnect"
+                        >
+                          <RefreshCw size={11} />
+                        </button>
+                      )}
                       <button onClick={() => removeMutation.mutate(t.id)}
                         className="p-0.5 hover:text-red-400 text-[#475569] transition-colors" aria-label="Remove">
                         <Trash2 size={11} />

@@ -1,23 +1,29 @@
 import { useState } from 'react';
-import { useMutation } from 'react-query';
+import { useMutation, useQuery } from 'react-query';
 import { X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { clientsApi } from '../../../lib/api';
+import { clientsApi, agencyApi } from '../../../lib/api';
+import UpgradeModal from '../../../components/shared/UpgradeModal';
 
 interface Props { onClose: () => void; onSuccess: () => void; }
 
 export default function AddClientModal({ onClose, onSuccess }: Props) {
   const [form, setForm] = useState({ name: '', industry: '', websiteUrl: '', contactName: '', contactEmail: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradeDetails, setUpgradeDetails] = useState<any>(null);
+
+  const { data: agency } = useQuery('agency', agencyApi.get);
 
   const mutation = useMutation(clientsApi.create, {
     onSuccess: () => { toast.success('Client created!'); onSuccess(); },
     onError: (e: any) => {
-      const msg = e.response?.data?.error;
-      if (typeof msg === 'string' && msg.includes('CLIENT_LIMIT')) {
-        toast.error('Client limit reached. Please upgrade your plan.', { duration: 5000 });
+      const data = e.response?.data;
+      if (data?.error === 'CLIENT_LIMIT_EXCEEDED') {
+        setUpgradeDetails({ activeClients: data.activeClients, limit: data.limit, message: data.message });
+        setShowUpgrade(true);
       } else {
-        toast.error('Failed to create client');
+        toast.error(data?.message || 'Failed to create client');
       }
     },
   });
@@ -124,6 +130,15 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
           </button>
         </div>
       </div>
+
+      {showUpgrade && (
+        <UpgradeModal
+          onClose={() => setShowUpgrade(false)}
+          reason="client_limit"
+          currentTier={agency?.subscriptionTier}
+          details={upgradeDetails}
+        />
+      )}
     </div>
   );
 }

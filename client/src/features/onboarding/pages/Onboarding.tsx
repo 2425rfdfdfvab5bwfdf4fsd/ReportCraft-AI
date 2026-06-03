@@ -81,6 +81,7 @@ export default function Onboarding() {
     ];
 
     try {
+      const onboardingStartTime = Date.now();
       const end = new Date();
       const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const report = await reportsApi.create({
@@ -98,12 +99,16 @@ export default function Onboarding() {
           stepIdx++;
         }
         const r = await reportsApi.get(report.id);
-        if (r.status === 'complete') {
+        if (r.status === 'ready') {
           clearInterval(poll);
           setReportProgress(100);
           setReportLabel('Report ready!');
           await agencyApi.update({ onboardingCompletedAt: new Date().toISOString() });
           qc.invalidateQueries('agency');
+          const { trackEvent } = await import('../../../lib/posthog');
+          trackEvent('onboarding_completed', {
+            timeToCompleteMs: Date.now() - onboardingStartTime,
+          });
           setTimeout(() => { navigate(`/reports/${report.id}`); toast.success('Welcome to ReportCraft AI! 🎉'); }, 800);
         } else if (r.status === 'error') {
           clearInterval(poll);

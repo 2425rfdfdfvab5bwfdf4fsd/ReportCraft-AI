@@ -79,3 +79,13 @@ export const teamApi = {
   update: (id: string, role: string) => api.put(`/team/${id}`, { role }).then(r => r.data),
   remove: (id: string) => api.delete(`/team/${id}`).then(r => r.data),
 };
+
+// Referrals
+export const referralsApi = {
+  getMe: () => api.get('/referrals/me').then(r => r.data),
+};
+
+// Connector refresh
+export const connectorsRefreshApi = {
+  refresh: (id: string) => api.post(`/connectors/${id}/refresh`).then(r => r.data),
+};

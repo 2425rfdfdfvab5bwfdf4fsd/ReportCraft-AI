@@ -34,6 +34,13 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ reports, total });
 });
 
+const AI_REPORT_MONTHLY_LIMITS: Record<string, number> = {
+  FREE_TRIAL: Infinity,
+  STARTER: 5,
+  AGENCY: Infinity,
+  AGENCY_PRO: Infinity,
+};
+
 router.post('/', async (req: Request, res: Response) => {
   try {
     const data = createReportSchema.parse(req.body);
@@ -57,6 +64,18 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const agency = await prisma.agency.findUnique({ where: { id: req.agencyId } });
+
+    // Enforce AI report monthly limit
+    const monthlyLimit = AI_REPORT_MONTHLY_LIMITS[agency?.subscriptionTier || 'FREE_TRIAL'] ?? 5;
+    if (isFinite(monthlyLimit) && (agency?.aiReportsUsedThisMonth ?? 0) >= monthlyLimit) {
+      return res.status(403).json({
+        error: 'REPORT_LIMIT_REACHED',
+        used: agency?.aiReportsUsedThisMonth,
+        limit: monthlyLimit,
+        upgradeUrl: '/settings/billing',
+        message: `You've used all ${monthlyLimit} AI reports for this month. Upgrade for unlimited reports.`,
+      });
+    }
 
     const report = await prisma.report.create({
       data: {
@@ -111,11 +130,11 @@ async function generateReportAsync(reportId: string, client: any, tone: string) 
       },
     });
 
-    // Update client lastReportAt
-    await prisma.client.update({
-      where: { id: client.id },
-      data: { lastReportAt: new Date() },
-    });
+    // Update client lastReportAt and increment AI usage counter
+    await Promise.all([
+      prisma.client.update({ where: { id: client.id }, data: { lastReportAt: new Date() } }),
+      prisma.agency.update({ where: { id: client.agencyId }, data: { aiReportsUsedThisMonth: { increment: 1 } } }),
+    ]);
   } catch (e) {
     console.error('Report generation failed:', e);
     await prisma.report.update({

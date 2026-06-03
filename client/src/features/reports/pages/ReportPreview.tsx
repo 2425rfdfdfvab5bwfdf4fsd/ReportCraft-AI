@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { ArrowLeft, Download, Send, RefreshCw, ThumbsUp, ThumbsDown, Share2, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { reportsApi } from '../../../lib/api';
+import { trackEvent } from '../../../lib/posthog';
 import { formatDate, formatDelta, formatNumber, formatCurrency, formatPercent } from '../../../utils/format';
 import StatusBadge from '../../../components/shared/StatusBadge';
 import { PageLoader } from '../../../components/shared/LoadingSpinner';
@@ -129,6 +130,7 @@ export default function ReportPreview() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success('PDF downloaded!');
+      trackEvent('report_exported', { clientId: report?.clientId, reportId: id });
     } catch {
       toast.error('PDF generation failed');
     } finally {
@@ -141,6 +143,7 @@ export default function ReportPreview() {
     try {
       await reportsApi.send(id!);
       toast.success('Report sent to client!');
+      trackEvent('report_sent', { clientId: report?.clientId, reportId: id });
     } catch {
       toast.error('Failed to send report');
     } finally {

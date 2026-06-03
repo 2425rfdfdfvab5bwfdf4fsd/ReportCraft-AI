@@ -4,7 +4,9 @@ import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { useQuery } from 'react-query';
 import { agencyApi } from '../../lib/api';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { identifyUser } from '../../lib/posthog';
+import { WifiOff } from 'lucide-react';
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -33,6 +35,27 @@ function PastDueBanner({ agency }: { agency: any }) {
   );
 }
 
+function NetworkErrorBanner() {
+  const [offline, setOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const onOnline = () => setOffline(false);
+    const onOffline = () => setOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
+
+  if (!offline) return null;
+
+  return (
+    <div className="bg-red-600 px-4 py-2 text-center text-sm text-white flex items-center justify-center gap-2">
+      <WifiOff size={14} />
+      Unable to connect to the server. Please check your internet connection.
+    </div>
+  );
+}
+
 function AppShell({ requireOnboarding = true }: Props) {
   const navigate = useNavigate();
   const { data: agency, isLoading } = useQuery('agency', agencyApi.get, { retry: 1, onError: () => {} });
@@ -43,10 +66,17 @@ function AppShell({ requireOnboarding = true }: Props) {
     }
   }, [agency, isLoading, requireOnboarding]);
 
+  useEffect(() => {
+    if (agency?.id) {
+      identifyUser(agency.clerkUserId || agency.id, agency.id, agency.subscriptionTier);
+    }
+  }, [agency?.id, agency?.subscriptionTier]);
+
   return (
     <div className="flex h-screen bg-[#0F172A] overflow-hidden">
       <Sidebar agency={agency} />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <NetworkErrorBanner />
         <TrialBanner agency={agency} />
         <PastDueBanner agency={agency} />
         <Topbar agency={agency} />
