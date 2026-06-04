@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Dre1Q9aIFG4KoK0WdFN7K"
+uri = "file://test_report_preview.pdf"
+type = "pdf"
+title = "ReportCraft AI — Professional PDF Preview"
