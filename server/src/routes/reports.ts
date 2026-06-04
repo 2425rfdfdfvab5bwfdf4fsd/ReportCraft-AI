@@ -217,6 +217,11 @@ router.get('/:id', async (req: Request, res: Response) => {
     include: {
       client: { select: { id: true, name: true, contactEmail: true, contactName: true } },
       agency: { select: { id: true, name: true, brandColor: true, logoUrl: true, narrativeTone: true } },
+      deliveries: {
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, status: true, sentAt: true, createdAt: true },
+      },
     },
   });
   if (!report) return res.status(404).json({ error: 'Report not found' });
@@ -342,8 +347,14 @@ router.post('/:id/send', async (req: Request, res: Response) => {
     include: { client: true },
   });
   if (!report) return res.status(404).json({ error: 'Report not found' });
+  if (report.status !== 'ready') {
+    return res.status(400).json({ error: 'Report is not ready', status: report.status, message: 'The report must finish generating before it can be sent.' });
+  }
 
   const emailTo = req.body.email || report.client.contactEmail;
+  if (!emailTo) {
+    return res.status(400).json({ error: 'NO_EMAIL', message: 'No recipient email address. Provide an email or add one to the client profile.' });
+  }
 
   const delivery = await prisma.reportDelivery.create({
     data: {

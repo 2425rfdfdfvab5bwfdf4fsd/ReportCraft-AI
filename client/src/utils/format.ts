@@ -28,3 +28,14 @@ export function formatRelative(d: string | Date) {
 export function validateHexColor(v: string) {
   return /^#[0-9A-Fa-f]{6}$/.test(v);
 }
+export function formatDuration(seconds: number): string {
+  if (isNaN(seconds) || seconds < 0) return '—';
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
+}
+export function readingTime(text: string): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words / 200));
+}
