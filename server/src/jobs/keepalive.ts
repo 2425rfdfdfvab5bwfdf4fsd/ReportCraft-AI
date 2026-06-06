@@ -25,7 +25,6 @@ export function startMonthlyResetJob() {
 }
 
 export function startStaleReportCleanup() {
-  // Clean up stale 'generating' reports on startup
   async function cleanup() {
     const cutoff = new Date(Date.now() - 35 * 1000);
     const updated = await prisma.report.updateMany({
@@ -36,5 +35,5 @@ export function startStaleReportCleanup() {
       console.log(`Cleaned up ${updated.count} stale generating report(s)`);
     }
   }
-  cleanup().catch(console.error);
+  cleanup().catch((e) => console.warn('Stale report cleanup skipped:', e.message));
 }

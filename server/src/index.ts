@@ -6,13 +6,19 @@ import { startKeepAliveJob, startMonthlyResetJob, startStaleReportCleanup } from
 import { startAnomalyDetectionJob } from './jobs/anomaly-detection.job';
 import { startReportSchedulerJob } from './jobs/report-scheduler.job';
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+
 const PORT = parseInt(process.env.PORT || '8000', 10);
 
 async function main() {
-  // Clean up stale reports from any previous crash
   startStaleReportCleanup();
 
-  // Start background jobs
   startKeepAliveJob();
   startMonthlyResetJob();
   startAnomalyDetectionJob();

@@ -13,13 +13,19 @@ declare global {
 
 const DEMO_CLERK_USER_ID = 'demo_user_replit';
 
+let _demoAgencyCache: any = null;
+
 async function getDemoAgency() {
-  // Try to find first to avoid race-condition on upsert
+  if (_demoAgencyCache) return _demoAgencyCache;
+
   const existing = await prisma.agency.findUnique({ where: { clerkUserId: DEMO_CLERK_USER_ID } });
-  if (existing) return existing;
+  if (existing) {
+    _demoAgencyCache = existing;
+    return existing;
+  }
 
   try {
-    return await prisma.agency.create({
+    const created = await prisma.agency.create({
       data: {
         clerkUserId: DEMO_CLERK_USER_ID,
         name: 'Demo Agency',
@@ -31,10 +37,13 @@ async function getDemoAgency() {
         brandColor: '#6366F1',
       },
     });
+    _demoAgencyCache = created;
+    return created;
   } catch (e: any) {
-    // Race condition: another request created it first
     if (e.code === 'P2002') {
-      return prisma.agency.findUniqueOrThrow({ where: { clerkUserId: DEMO_CLERK_USER_ID } });
+      const found = await prisma.agency.findUniqueOrThrow({ where: { clerkUserId: DEMO_CLERK_USER_ID } });
+      _demoAgencyCache = found;
+      return found;
     }
     throw e;
   }
