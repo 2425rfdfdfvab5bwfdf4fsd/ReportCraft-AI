@@ -125,11 +125,16 @@ export async function generateNarrative(
 ): Promise<{ result: NarrativeResult; model: string }> {
   const prompt = buildPrompt(data, tone, clientName, goals);
 
-  // Try OpenAI first (lazy import)
-  if (process.env.OPENAI_API_KEY) {
+  // Try OpenAI first — supports both native OPENAI_API_KEY and Replit AI Integration env vars
+  const openaiApiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const openaiBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  if (openaiApiKey) {
     try {
       const { default: OpenAI } = await import('openai');
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const openai = new OpenAI({
+        apiKey: openaiApiKey,
+        ...(openaiBaseUrl && { baseURL: openaiBaseUrl }),
+      });
       const model = process.env.OPENAI_MODEL || 'gpt-4o';
 
       const controller = new AbortController();

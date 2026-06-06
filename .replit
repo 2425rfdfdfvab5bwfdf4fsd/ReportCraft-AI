@@ -54,3 +54,9 @@ externalPort = 8000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+ENCRYPTION_KEY = "81a2247c98b3a08a8d452f0fef1d4fef84ee30711dbce6a3fc62cb4304382879"
+OAUTH_STATE_SECRET = "b26670e115eb7e8bb4638f7eb607d1ba0b8f7d7be998f083a470183a304105c1"

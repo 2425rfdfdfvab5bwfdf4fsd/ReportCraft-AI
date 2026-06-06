@@ -160,18 +160,77 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
   }
 });
 
-// LinkedIn OAuth (stub — requires MDP Standard Tier approval)
+// LinkedIn OAuth
 router.get('/linkedin/auth-url', async (req: Request, res: Response) => {
-  return res.json({
-    url: null,
-    comingSoon: true,
-    message: 'LinkedIn Ads connector requires MDP Standard Tier approval. Coming soon.',
-  });
+  const clientId = process.env.LINKEDIN_CLIENT_ID;
+  if (!clientId) {
+    return res.json({
+      url: null,
+      comingSoon: true,
+      message: 'LinkedIn Ads connector requires MDP Standard Tier approval. Coming soon.',
+    });
+  }
+
+  const state = generateState(req.agencyId, 'linkedin_ads');
+  const redirectUri = `${process.env.SERVER_URL || `https://${process.env.REPLIT_DEV_DOMAIN}`}/api/connectors/linkedin/callback`;
+  const scopes = ['r_ads', 'r_ads_reporting', 'r_organization_social'].join('%20');
+  const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&state=${encodeURIComponent(state)}`;
+  res.json({ url });
 });
 
 router.get('/linkedin/callback', async (req: Request, res: Response) => {
+  const { code, state, error } = req.query as Record<string, string>;
   const frontendUrl = process.env.FRONTEND_URL || `https://${process.env.REPLIT_DEV_DOMAIN}`;
-  return res.redirect(`${frontendUrl}/connectors?error=linkedin_not_available`);
+
+  if (error) return res.redirect(`${frontendUrl}/connectors?error=cancelled`);
+  if (!process.env.LINKEDIN_CLIENT_ID) return res.redirect(`${frontendUrl}/connectors?error=linkedin_not_available`);
+
+  const stateData = verifyState(state);
+  if (!stateData) return res.redirect(`${frontendUrl}/connectors?error=invalid_state`);
+
+  try {
+    const clientId = process.env.LINKEDIN_CLIENT_ID;
+    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+    const redirectUri = `${process.env.SERVER_URL || `https://${process.env.REPLIT_DEV_DOMAIN}`}/api/connectors/linkedin/callback`;
+
+    const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: clientId!,
+        client_secret: clientSecret!,
+      }),
+    });
+    const tokens = await tokenRes.json() as any;
+    if (tokens.error) throw new Error(tokens.error_description || tokens.error);
+
+    const meRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const me = await meRes.json() as any;
+
+    await prisma.oAuthToken.create({
+      data: {
+        agencyId: stateData.agencyId,
+        platform: 'linkedin_ads',
+        accountId: me.sub || me.email,
+        accountName: me.name || me.email || 'LinkedIn Account',
+        encryptedAccessToken: encrypt(tokens.access_token),
+        encryptedRefreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
+        tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
+        scopes: ['r_ads', 'r_ads_reporting', 'r_organization_social'],
+        status: 'active',
+      },
+    });
+
+    res.redirect(`${frontendUrl}/connectors?success=linkedin`);
+  } catch (e) {
+    console.error('LinkedIn callback error:', e);
+    res.redirect(`${frontendUrl}/connectors?error=oauth_failed`);
+  }
 });
 
 // Manual token refresh

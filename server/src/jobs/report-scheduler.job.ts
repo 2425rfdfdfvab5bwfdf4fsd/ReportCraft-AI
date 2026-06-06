@@ -155,7 +155,8 @@ async function generateAndSendReport(reportId: string, client: any, agency: any)
     let narrativeResult;
     let aiModel = 'mock';
 
-    if (process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
+    const hasAI = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (hasAI) {
       try {
         const result = await generateNarrative(rawData as any, agency.narrativeTone, client.name, client.goals);
         narrativeResult = result.result;
