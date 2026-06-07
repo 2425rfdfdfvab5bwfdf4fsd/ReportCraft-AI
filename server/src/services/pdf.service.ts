@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Document, Page, View, Text, StyleSheet, Image,
-  Svg, Rect, Circle, G,
+  Svg, Rect, Circle,
 } from '@react-pdf/renderer';
 import { renderToBuffer } from '@react-pdf/renderer';
 
@@ -217,9 +217,6 @@ function CoverBackground({ color }: { color: string }) {
       ),
     ),
 
-    /* Horizontal rule on white side (below stats area) */
-    React.createElement(View, { style: { position: 'absolute', top: 540, left: 208,
-      width: PW - 208, height: 0.5, backgroundColor: '#E2E8F0' } }),
   );
 }
 
@@ -514,166 +511,179 @@ export async function generatePDF(report: any, agency: any, client: any): Promis
     /* ── LEFT PANEL ── */
     React.createElement(View, {
       style: { position: 'absolute', top: 0, left: 0, width: 200, height: PH,
-        padding: 34, flexDirection: 'column', justifyContent: 'space-between' },
+        paddingHorizontal: 28, paddingTop: 32, paddingBottom: 28,
+        flexDirection: 'column' },
     },
-      /* Top: agency identity */
-      React.createElement(View, {},
+      /* Top: agency brand mark */
+      React.createElement(View, { style: { marginBottom: 0 } },
         agency?.logoUrl
           ? React.createElement(Image, {
               src: agency.logoUrl,
-              style: { height: 26, maxWidth: 120, objectFit: 'contain', marginBottom: 14 },
+              style: { height: 22, maxWidth: 110, objectFit: 'contain' },
             })
           : React.createElement(View, {
-              style: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+              style: { flexDirection: 'row', alignItems: 'center' },
             },
-              React.createElement(View, { style: { width: 7, height: 7, borderRadius: 4,
-                backgroundColor: color, marginRight: 7 } }),
+              React.createElement(View, { style: { width: 6, height: 6, borderRadius: 3,
+                backgroundColor: color, marginRight: 6, flexShrink: 0 } }),
               React.createElement(Text, {
-                style: { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
+                style: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
               }, agencyName),
             ),
-        React.createElement(View, { style: { height: 0.5, backgroundColor: 'rgba(255,255,255,0.12)',
-          marginBottom: 24 } }),
+      ),
+
+      /* Center: client identity (flex: 1 + justifyContent: center keeps it vertically centred) */
+      React.createElement(View, {
+        style: { flex: 1, justifyContent: 'center', paddingVertical: 24 },
+      },
+        React.createElement(View, { style: { height: 0.5,
+          backgroundColor: 'rgba(255,255,255,0.12)', marginBottom: 18 } }),
         React.createElement(Text, {
-          style: { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color,
-            textTransform: 'uppercase', letterSpacing: 2.2, marginBottom: 12 },
+          style: { fontSize: 6, fontFamily: 'Helvetica-Bold', color,
+            textTransform: 'uppercase', letterSpacing: 2.5, marginBottom: 14 },
         }, 'Performance Report'),
         React.createElement(Text, {
-          style: { fontSize: 20, fontFamily: 'Helvetica-Bold', color: '#ffffff',
-            lineHeight: 1.18, marginBottom: 10 },
+          style: { fontSize: 24, fontFamily: 'Helvetica-Bold', color: '#ffffff',
+            lineHeight: 1.15, marginBottom: 12 },
         }, clientName),
+        React.createElement(View, { style: { height: 2, width: 24, backgroundColor: color,
+          borderRadius: 1, marginBottom: 12 } }),
         React.createElement(Text, {
-          style: { fontSize: 8.5, fontFamily: 'Helvetica', color: 'rgba(255,255,255,0.5)',
-            lineHeight: 1.6 },
+          style: { fontSize: 8, fontFamily: 'Helvetica', color: 'rgba(255,255,255,0.45)',
+            lineHeight: 1.65 },
         }, `${startDate}\n– ${endDate}`),
+        React.createElement(View, { style: { height: 0.5,
+          backgroundColor: 'rgba(255,255,255,0.12)', marginTop: 18 } }),
       ),
 
       /* Bottom: table of contents */
       React.createElement(View, {},
-        React.createElement(View, { style: { height: 0.5, backgroundColor: 'rgba(255,255,255,0.1)',
-          marginBottom: 14 } }),
         React.createElement(Text, {
-          style: { fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: 'rgba(255,255,255,0.3)',
-            textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10 },
+          style: { fontSize: 5, fontFamily: 'Helvetica-Bold', color: 'rgba(255,255,255,0.28)',
+            textTransform: 'uppercase', letterSpacing: 2.2, marginBottom: 10 },
         }, 'Contents'),
         ...tocItems.map((item, i) =>
           React.createElement(View, {
             key: i,
-            style: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+            style: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
           },
-            React.createElement(View, { style: { width: 4, height: 4, borderRadius: 2,
-              backgroundColor: color, marginRight: 8, flexShrink: 0 } }),
+            React.createElement(View, { style: { width: 3, height: 3, borderRadius: 2,
+              backgroundColor: color, marginRight: 7, flexShrink: 0, marginTop: 1 } }),
             React.createElement(Text, {
-              style: { fontSize: 7.5, fontFamily: 'Helvetica', color: 'rgba(255,255,255,0.6)' },
+              style: { fontSize: 7, fontFamily: 'Helvetica', color: 'rgba(255,255,255,0.55)' },
             }, item),
           )
         ),
         React.createElement(View, { style: { height: 0.5, backgroundColor: 'rgba(255,255,255,0.1)',
-          marginTop: 10, marginBottom: 10 } }),
+          marginTop: 10, marginBottom: 8 } }),
         React.createElement(Text, {
-          style: { fontSize: 6, fontFamily: 'Helvetica', color: 'rgba(255,255,255,0.28)' },
+          style: { fontSize: 5.5, fontFamily: 'Helvetica', color: 'rgba(255,255,255,0.22)' },
         }, 'Strictly Confidential'),
       ),
     ),
 
     /* ── RIGHT PANEL ── */
     React.createElement(View, {
-      style: { position: 'absolute', top: 0, left: 222, right: 0, height: PH,
-        paddingTop: 48, paddingRight: 40, paddingBottom: 36,
+      style: { position: 'absolute', top: 0, left: 212, right: 0, height: PH,
+        paddingTop: 44, paddingRight: 38, paddingBottom: 32,
         flexDirection: 'column' },
     },
 
       /* Eyebrow */
       React.createElement(Text, {
-        style: { fontSize: 7, fontFamily: 'Helvetica-Bold', color,
-          textTransform: 'uppercase', letterSpacing: 2.5, marginBottom: 18 },
+        style: { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color,
+          textTransform: 'uppercase', letterSpacing: 2.5, marginBottom: 16 },
       }, 'AI-Powered Report'),
 
       /* Hero heading */
       React.createElement(Text, {
-        style: { fontSize: 26, fontFamily: 'Helvetica-Bold', color: '#0F172A',
-          lineHeight: 1.14, letterSpacing: -0.2 },
+        style: { fontSize: 28, fontFamily: 'Helvetica-Bold', color: '#0F172A',
+          lineHeight: 1.12, letterSpacing: -0.3 },
       }, 'Digital\nPerformance\nAnalysis'),
 
-      React.createElement(View, { style: { height: 3, width: 36, backgroundColor: color,
+      React.createElement(View, { style: { height: 3, width: 32, backgroundColor: color,
         borderRadius: 2, marginTop: 10, marginBottom: 14 } }),
 
       React.createElement(Text, {
         style: { fontSize: 8.5, fontFamily: 'Helvetica', color: '#64748B',
-          lineHeight: 1.65, marginBottom: 24 },
-      }, `Cross-channel performance analysis combining ${platforms.length > 0 ? platforms.join(', ') : 'all connected platforms'}. AI-driven insights and strategic recommendations.`),
+          lineHeight: 1.65, marginBottom: 0 },
+      }, `Cross-channel performance analysis combining ${
+          platforms.length > 0 ? platforms.join(', ') : 'all connected platforms'
+        }. AI-driven insights and strategic recommendations.`),
 
       /* Stat strip — only rendered when there are stats */
       coverStats.length > 0
-        ? React.createElement(View, {},
+        ? React.createElement(View, { style: { marginTop: 22 } },
             React.createElement(View, { style: { height: 0.5, backgroundColor: '#E2E8F0',
               marginBottom: 18 } }),
             React.createElement(View, { style: { flexDirection: 'row', marginBottom: 18 } },
               ...coverStats.map((s, i) =>
                 React.createElement(CoverStat, {
-                  key: s.label,
-                  label: s.label,
-                  value: s.value,
-                  color,
+                  key: s.label, label: s.label, value: s.value, color,
                   isLast: i === coverStats.length - 1,
                 })
               ),
             ),
-            React.createElement(View, { style: { height: 0.5, backgroundColor: '#E2E8F0',
-              marginBottom: 18 } }),
+            React.createElement(View, { style: { height: 0.5, backgroundColor: '#E2E8F0' } }),
           )
         : null,
 
-      /* Spacer */
-      React.createElement(View, { style: { flex: 1 } }),
+      /* ── Bottom block pushed down with marginTop: auto ── */
+      React.createElement(View, { style: { marginTop: 'auto' as any } },
 
-      /* Metadata grid */
-      React.createElement(View, { style: { flexDirection: 'row', marginBottom: 16 } },
-        ...[
-          { k: 'Prepared by',    v: agencyName },
-          { k: 'Report Period',  v: dateRange },
-          { k: 'Generated',      v: genDate },
-          { k: 'AI Tone',        v: tone },
-        ].map(({ k, v }, i) =>
+        /* Thin rule above metadata */
+        React.createElement(View, { style: { height: 0.5, backgroundColor: '#E2E8F0',
+          marginBottom: 14 } }),
+
+        /* Metadata grid */
+        React.createElement(View, { style: { flexDirection: 'row', marginBottom: 14 } },
+          ...[
+            { k: 'Prepared by',   v: agencyName },
+            { k: 'Report Period', v: dateRange },
+            { k: 'Generated',     v: genDate },
+            { k: 'AI Tone',       v: tone },
+          ].map(({ k, v }, i) =>
+            React.createElement(View, {
+              key: k,
+              style: { flex: 1,
+                paddingRight: i < 3 ? 10 : 0,
+                borderRightWidth: i < 3 ? 0.5 : 0,
+                borderRightColor: '#E2E8F0',
+                paddingLeft: i > 0 ? 10 : 0 },
+            },
+              React.createElement(Text, {
+                style: { fontSize: 6, fontFamily: 'Helvetica-Bold', color: '#94A3B8',
+                  textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+              }, k),
+              React.createElement(Text, {
+                style: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#334155' },
+              }, v),
+            )
+          ),
+        ),
+
+        /* Tags */
+        React.createElement(View, { style: { flexDirection: 'row' } },
           React.createElement(View, {
-            key: k,
-            style: { flex: 1, paddingRight: i < 3 ? 10 : 0,
-              borderRightWidth: i < 3 ? 0.5 : 0,
-              borderRightColor: '#E2E8F0',
-              paddingLeft: i > 0 ? 10 : 0 },
+            style: { paddingHorizontal: 8, paddingVertical: 4,
+              backgroundColor: rgba(color, 0.1),
+              borderWidth: 1, borderColor: rgba(color, 0.3),
+              borderRadius: 3, marginRight: 6 },
           },
             React.createElement(Text, {
-              style: { fontSize: 6, fontFamily: 'Helvetica-Bold', color: '#94A3B8',
-                textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-            }, k),
+              style: { fontSize: 6, fontFamily: 'Helvetica-Bold', color,
+                textTransform: 'uppercase', letterSpacing: 1.2 },
+            }, 'Confidential'),
+          ),
+          React.createElement(View, {
+            style: { paddingHorizontal: 8, paddingVertical: 4,
+              borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 3 },
+          },
             React.createElement(Text, {
-              style: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#334155' },
-            }, v),
-          )
-        ),
-      ),
-
-      /* Tags */
-      React.createElement(View, { style: { flexDirection: 'row' } },
-        React.createElement(View, {
-          style: { paddingHorizontal: 9, paddingVertical: 4,
-            backgroundColor: rgba(color, 0.1),
-            borderWidth: 1, borderColor: rgba(color, 0.3),
-            borderRadius: 4, marginRight: 6 },
-        },
-          React.createElement(Text, {
-            style: { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color,
-              textTransform: 'uppercase', letterSpacing: 1.2 },
-          }, 'Confidential'),
-        ),
-        React.createElement(View, {
-          style: { paddingHorizontal: 9, paddingVertical: 4,
-            borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 4 },
-        },
-          React.createElement(Text, {
-            style: { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#64748B',
-              textTransform: 'uppercase', letterSpacing: 1.2 },
-          }, 'AI-Powered Analysis'),
+              style: { fontSize: 6, fontFamily: 'Helvetica-Bold', color: '#64748B',
+                textTransform: 'uppercase', letterSpacing: 1.2 },
+            }, 'AI-Powered Analysis'),
+          ),
         ),
       ),
     ),
