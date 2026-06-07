@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../lib/db';
+import { config } from '../config';
 
 declare global {
   namespace Express {
@@ -31,7 +32,7 @@ async function getDemoAgency() {
         name: 'Demo Agency',
         subscriptionTier: 'AGENCY',
         subscriptionStatus: 'active',
-        trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        trialEndsAt: new Date(Date.now() + config.trial.demoDurationDays * 24 * 60 * 60 * 1000),
         referralCode: 'DEMO1234',
         onboardingCompletedAt: new Date(),
         brandColor: '#6366F1',

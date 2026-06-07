@@ -1,31 +1,36 @@
 import cron from 'node-cron';
 import prisma from '../lib/db';
+import { config } from '../config';
+import type { RawData } from '../types';
 
-const THRESHOLD = 0.20;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface MetricAnomaly {
+  metric:    string;
+  current:   number;
+  previous:  number;
+  pctChange: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function pctChange(current: number, prev: number): number {
   if (!prev || prev === 0) return 0;
   return (current - prev) / prev;
 }
 
-interface MetricAnomaly {
-  metric: string;
-  current: number;
-  previous: number;
-  pctChange: number;
-}
-
 async function sendAnomalyAlert(
   agencyEmail: string,
-  agencyName: string,
-  clientName: string,
-  reportId: string,
-  anomalies: MetricAnomaly[],
-) {
+  agencyName:  string,
+  clientName:  string,
+  reportId:    string,
+  anomalies:   MetricAnomaly[],
+): Promise<void> {
   if (!process.env.RESEND_API_KEY) {
-    console.log(`[anomaly] Would email ${agencyEmail} about ${anomalies.length} anomalies for ${clientName}`);
+    console.log(`[anomaly] Would email ${agencyEmail} about ${anomalies.length} anomaly/ies for ${clientName}`);
     return;
   }
+
   try {
     const { Resend } = await import('resend');
     const resend = new Resend(process.env.RESEND_API_KEY);
@@ -44,13 +49,14 @@ async function sendAnomalyAlert(
     const reportUrl = `${process.env.FRONTEND_URL || 'https://app.reportcraft.ai'}/reports/${reportId}`;
 
     await resend.emails.send({
-      from: `ReportCraft AI <alerts@reportcraft.ai>`,
-      to: [agencyEmail],
+      from:    'ReportCraft AI <alerts@reportcraft.ai>',
+      to:      [agencyEmail],
       subject: `⚠️ Metric alert for ${clientName} — significant changes detected`,
       html: `
         <h2 style="font-family:sans-serif">Anomaly Alert: ${clientName}</h2>
         <p style="font-family:sans-serif;color:#555">
-          The following metrics changed by more than 20% compared to the previous 7-day period:
+          The following metrics changed by more than ${config.anomaly.changeThreshold * 100}%
+          compared to the previous 7-day period:
         </p>
         <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px">
           <thead>
@@ -64,10 +70,12 @@ async function sendAnomalyAlert(
           <tbody>${anomalyRows}</tbody>
         </table>
         <p style="font-family:sans-serif;margin-top:20px">
-          <a href="${reportUrl}" style="background:#6366F1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">View Report</a>
+          <a href="${reportUrl}" style="background:#6366F1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">
+            View Report
+          </a>
         </p>
         <p style="font-family:sans-serif;font-size:12px;color:#999;margin-top:20px">
-          You're receiving this because anomaly alerts are enabled for ${agencyName}. 
+          You're receiving this because anomaly alerts are enabled for ${agencyName}.
           Manage alerts in Settings.
         </p>
       `,
@@ -77,20 +85,25 @@ async function sendAnomalyAlert(
   }
 }
 
-async function runAnomalyDetection() {
+// ─── Detection logic ──────────────────────────────────────────────────────────
+
+async function runAnomalyDetection(): Promise<void> {
   console.log('[anomaly] Running weekly anomaly detection...');
 
   const now = new Date();
-  const sunday2359 = new Date(now);
-  sunday2359.setUTCDate(sunday2359.getUTCDate() - sunday2359.getUTCDay());
-  sunday2359.setUTCHours(23, 59, 59, 999);
 
-  const currentStart = new Date(sunday2359);
-  currentStart.setUTCDate(currentStart.getUTCDate() - 7);
-  const currentEnd = sunday2359;
+  // Build the current 7-day window (ending last Sunday 23:59:59)
+  const windowEnd = new Date(now);
+  windowEnd.setUTCDate(windowEnd.getUTCDate() - windowEnd.getUTCDay());
+  windowEnd.setUTCHours(23, 59, 59, 999);
 
-  const prevEnd = new Date(currentStart);
+  const windowStart = new Date(windowEnd);
+  windowStart.setUTCDate(windowStart.getUTCDate() - 7);
+
+  // Build the preceding 7-day window for comparison
+  const prevEnd = new Date(windowStart);
   prevEnd.setUTCMilliseconds(prevEnd.getUTCMilliseconds() - 1);
+
   const prevStart = new Date(prevEnd);
   prevStart.setUTCDate(prevStart.getUTCDate() - 7);
 
@@ -103,75 +116,60 @@ async function runAnomalyDetection() {
 
   for (const agency of agencies) {
     const clients = await prisma.client.findMany({
-      where: {
-        agencyId: agency.id,
-        archivedAt: null,
-        anomalyAlertsEnabled: true,
-      },
+      where: { agencyId: agency.id, archivedAt: null, anomalyAlertsEnabled: true },
     });
 
     for (const client of clients) {
-      const currentReport = await prisma.report.findFirst({
-        where: {
-          clientId: client.id,
-          agencyId: agency.id,
-          status: 'ready',
-          dateRangeStart: { gte: currentStart },
-          dateRangeEnd: { lte: currentEnd },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const prevReport = await prisma.report.findFirst({
-        where: {
-          clientId: client.id,
-          agencyId: agency.id,
-          status: 'ready',
-          dateRangeStart: { gte: prevStart },
-          dateRangeEnd: { lte: prevEnd },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      const [currentReport, prevReport] = await Promise.all([
+        prisma.report.findFirst({
+          where: {
+            clientId: client.id, agencyId: agency.id, status: 'ready',
+            dateRangeStart: { gte: windowStart }, dateRangeEnd: { lte: windowEnd },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.report.findFirst({
+          where: {
+            clientId: client.id, agencyId: agency.id, status: 'ready',
+            dateRangeStart: { gte: prevStart }, dateRangeEnd: { lte: prevEnd },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
 
       if (!currentReport?.rawData || !prevReport?.rawData) continue;
 
-      const curr = currentReport.rawData as any;
-      const prev = prevReport.rawData as any;
+      const curr = currentReport.rawData as unknown as RawData;
+      const prev = prevReport.rawData  as unknown as RawData;
       const anomalies: MetricAnomaly[] = [];
 
-      const checkMetric = (name: string, current: number, previous: number) => {
+      const check = (name: string, current?: number, previous?: number) => {
         if (!current || !previous) return;
         const change = pctChange(current, previous);
-        if (Math.abs(change) >= THRESHOLD) {
+        if (Math.abs(change) >= config.anomaly.changeThreshold) {
           anomalies.push({ metric: name, current, previous, pctChange: change });
         }
       };
 
       if (curr.ga4 && prev.ga4) {
-        checkMetric('GA4 Sessions', curr.ga4.sessions, prev.ga4.sessions);
-        checkMetric('GA4 Bounce Rate', curr.ga4.bounceRate, prev.ga4.bounceRate);
-        checkMetric('GA4 Conversion Rate', curr.ga4.conversionRate, prev.ga4.conversionRate);
+        check('GA4 Sessions',         curr.ga4.sessions,       prev.ga4.sessions);
+        check('GA4 Bounce Rate',      curr.ga4.bounceRate,     prev.ga4.bounceRate);
+        check('GA4 Conversion Rate',  curr.ga4.conversionRate, prev.ga4.conversionRate);
       }
       if (curr.googleAds && prev.googleAds) {
-        checkMetric('Google Ads Spend', curr.googleAds.spend, prev.googleAds.spend);
-        checkMetric('Google Ads ROAS', curr.googleAds.roas, prev.googleAds.roas);
-        checkMetric('Google Ads CTR', curr.googleAds.ctr, prev.googleAds.ctr);
+        check('Google Ads Spend', curr.googleAds.spend, prev.googleAds.spend);
+        check('Google Ads ROAS',  curr.googleAds.roas,  prev.googleAds.roas);
+        check('Google Ads CTR',   curr.googleAds.ctr,   prev.googleAds.ctr);
       }
       if (curr.meta && prev.meta) {
-        checkMetric('Meta Ads Spend', curr.meta.spend, prev.meta.spend);
-        checkMetric('Meta Ads ROAS', curr.meta.roas, prev.meta.roas);
-        checkMetric('Meta Ads CPM', curr.meta.cpm, prev.meta.cpm);
+        check('Meta Ads Spend', curr.meta.spend, prev.meta.spend);
+        check('Meta Ads ROAS',  curr.meta.roas,  prev.meta.roas);
+        check('Meta Ads CPM',   curr.meta.cpm,   prev.meta.cpm);
       }
 
       if (anomalies.length > 0) {
         const agencyEmail = `${agency.name?.toLowerCase().replace(/\s+/g, '') || 'agency'}@reportcraft.ai`;
-        await sendAnomalyAlert(
-          agencyEmail,
-          agency.name || 'Your Agency',
-          client.name,
-          currentReport.id,
-          anomalies,
-        );
+        await sendAnomalyAlert(agencyEmail, agency.name || 'Your Agency', client.name, currentReport.id, anomalies);
       }
     }
   }
@@ -179,9 +177,14 @@ async function runAnomalyDetection() {
   console.log('[anomaly] Weekly anomaly detection complete');
 }
 
-export function startAnomalyDetectionJob() {
-  cron.schedule('0 6 * * 1', () => {
-    runAnomalyDetection().catch(e => console.error('[anomaly] Job failed:', e));
-  }, { timezone: 'UTC' });
+// ─── Scheduler ────────────────────────────────────────────────────────────────
+
+/** Schedules the anomaly-detection scan to run every Monday at 06:00 UTC. */
+export function startAnomalyDetectionJob(): void {
+  cron.schedule(
+    '0 6 * * 1',
+    () => runAnomalyDetection().catch(e => console.error('[anomaly] Job failed:', e)),
+    { timezone: 'UTC' },
+  );
   console.log('[anomaly] Anomaly detection job scheduled (Mon 06:00 UTC)');
 }

@@ -7,22 +7,32 @@ import { Toaster } from 'react-hot-toast';
 import App from './App';
 import { queryClient } from './lib/queryClient';
 import { initPostHog } from './lib/posthog';
+import { setAuthToken } from './lib/api';
 import './index.css';
 
 initPostHog();
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
 
+const TOAST_STYLE = {
+  style: { background: '#1E293B', color: '#F8FAFC', border: '1px solid #334155' },
+} as const;
+
+/**
+ * Keeps the module-level auth token in `api.ts` in sync with Clerk.
+ * Refreshes every 55 seconds (tokens expire after 60 s by default).
+ */
 function ClerkTokenSync({ children }: { children: React.ReactNode }) {
   const { getToken } = useAuth();
 
   React.useEffect(() => {
     const sync = async () => {
       const token = await getToken();
-      (window as any).__clerkToken = token;
+      setAuthToken(token);
     };
+
     sync();
-    const interval = setInterval(sync, 55 * 1000);
+    const interval = setInterval(sync, 55_000);
     return () => clearInterval(interval);
   }, [getToken]);
 
@@ -35,7 +45,7 @@ function Root() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <App />
-          <Toaster position="top-right" toastOptions={{ style: { background: '#1E293B', color: '#F8FAFC', border: '1px solid #334155' } }} />
+          <Toaster position="top-right" toastOptions={TOAST_STYLE} />
         </BrowserRouter>
       </QueryClientProvider>
     );
@@ -48,7 +58,7 @@ function Root() {
           <ClerkTokenSync>
             <App />
           </ClerkTokenSync>
-          <Toaster position="top-right" toastOptions={{ style: { background: '#1E293B', color: '#F8FAFC', border: '1px solid #334155' } }} />
+          <Toaster position="top-right" toastOptions={TOAST_STYLE} />
         </BrowserRouter>
       </QueryClientProvider>
     </ClerkProvider>

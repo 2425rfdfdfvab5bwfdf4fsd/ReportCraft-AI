@@ -1,19 +1,21 @@
 import { Outlet, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
+import { useQuery } from 'react-query';
+import { useEffect, useState } from 'react';
+import { WifiOff } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
-import { useQuery } from 'react-query';
 import { agencyApi } from '../../lib/api';
-import { useEffect, useState } from 'react';
 import { identifyUser } from '../../lib/posthog';
-import { WifiOff } from 'lucide-react';
 import UpgradeModal from '../shared/UpgradeModal';
+import ErrorBoundary from '../shared/ErrorBoundary';
+import type { Agency } from '../../types';
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 interface Props { requireOnboarding?: boolean; }
 
-function TrialBanner({ agency }: { agency: any }) {
+function TrialBanner({ agency }: { agency: Agency | undefined }) {
   if (!agency || agency.subscriptionTier !== 'FREE_TRIAL') return null;
   const daysLeft = agency.trialEndsAt
     ? Math.ceil((new Date(agency.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -27,7 +29,7 @@ function TrialBanner({ agency }: { agency: any }) {
   );
 }
 
-function PastDueBanner({ agency }: { agency: any }) {
+function PastDueBanner({ agency }: { agency: Agency | undefined }) {
   if (agency?.subscriptionStatus !== 'past_due') return null;
   return (
     <div className="bg-red-500/10 border-b border-red-500/30 px-4 py-2 text-center text-sm text-red-400">
@@ -111,7 +113,9 @@ function AppShell({ requireOnboarding = true }: Props) {
         <PastDueBanner agency={agency} />
         <Topbar agency={agency} onMenuClick={() => setSidebarOpen(true)} />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 

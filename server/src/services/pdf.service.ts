@@ -4,6 +4,7 @@ import {
   Svg, Rect, Circle,
 } from '@react-pdf/renderer';
 import { renderToBuffer } from '@react-pdf/renderer';
+import type { RawData, NarrativeResult, ReportInput, AgencyInput, ClientInput } from '../types';
 
 /* ═══════════════════════════════════════════════════════════════
    PAGE CONSTANTS
@@ -243,7 +244,7 @@ function RunningFooter({ agencyName, genDate }: { agencyName: string; genDate: s
       React.createElement(Text, { style: S.rFtrTxt }, `Generated ${genDate}`),
       React.createElement(Text, {
         style: S.rFtrTxt,
-        render: ({ pageNumber, totalPages }: any) =>
+        render: ({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) =>
           `Page ${pageNumber - 1} of ${totalPages - 1}`,
       }),
     ),
@@ -339,7 +340,7 @@ type OvRow = {
   d: Delta;
 };
 
-function OverviewTable({ rawData, color }: { rawData: any; color: string }) {
+function OverviewTable({ rawData, color }: { rawData: RawData | null; color: string }) {
   const rows: OvRow[] = [];
   if (rawData?.ga4) rows.push({
     platform: 'Google Analytics 4',    dotColor: '#4285F4',
@@ -452,9 +453,16 @@ function CoverStat({ label, value, color, isLast }: {
 /* ═══════════════════════════════════════════════════════════════
    MAIN EXPORT
 ═══════════════════════════════════════════════════════════════ */
-export async function generatePDF(report: any, agency: any, client: any): Promise<Buffer> {
-  const rawData    = report.rawData   as any;
-  const narrative  = report.narrative as any;
+/**
+ * Renders a full A4 PDF report and returns it as a buffer.
+ *
+ * @param report  Minimal report fields (dates, rawData, narrative, tone).
+ * @param agency  Agency branding and subscription tier.
+ * @param client  Client display name.
+ */
+export async function generatePDF(report: ReportInput, agency: AgencyInput, client: ClientInput): Promise<Buffer> {
+  const rawData:   RawData | null         = report.rawData;
+  const narrative: NarrativeResult | null = report.narrative;
   const color      = agency?.brandColor || '#6366F1';
   const errorColor = '#DC2626';
   const isAgency   = ['AGENCY', 'AGENCY_PRO'].includes(agency?.subscriptionTier);

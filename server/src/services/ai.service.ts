@@ -1,105 +1,89 @@
-export interface NarrativeData {
-  ga4?: {
-    sessions: number; sessionsPrev: number;
-    bounceRate: number; bounceRatePrev: number;
-    users: number; usersPrev: number;
-    pageviews: number; pageviewsPrev: number;
-    avgSessionDuration: number; avgSessionDurationPrev: number;
-    conversionRate: number; conversionRatePrev: number;
-  };
-  googleAds?: {
-    impressions: number; impressionsPrev: number;
-    clicks: number; clicksPrev: number;
-    ctr: number; ctrPrev: number;
-    spend: number; spendPrev: number;
-    cpc: number; cpcPrev: number;
-    conversions: number; conversionsPrev: number;
-    conversionRate: number; conversionRatePrev: number;
-    roas: number; roasPrev: number;
-  };
-  meta?: {
-    impressions: number; impressionsPrev: number;
-    reach: number; reachPrev: number;
-    clicks: number; clicksPrev: number;
-    ctr: number; ctrPrev: number;
-    spend: number; spendPrev: number;
-    cpm: number; cpmPrev: number;
-    roas: number; roasPrev: number;
-  };
-}
+import type { RawData, NarrativeResult } from '../types';
+import { config } from '../config';
 
-export interface NarrativeResult {
-  executiveSummary: string;
-  campaignPerformance: string;
-  keyWins: string;
-  areasOfConcern: string;
-  recommendations: string;
-  wordCount?: number;
-  generatedAt?: string;
-}
+// Re-export NarrativeResult so existing importers keep working
+export type { NarrativeResult } from '../types';
 
-const toneInstructions: Record<string, string> = {
-  professional: 'Write in a formal, data-driven tone. Use precise language and focus on measurable outcomes. Avoid colloquialisms.',
-  conversational: 'Write in a warm, accessible, first-person tone. Use "we" and "your" to create partnership. Make insights feel approachable.',
-  executive: 'Write in a concise, strategic, C-suite-focused tone. Lead with impact and bottom-line implications. Bullet-point thinking in prose form.',
+/**
+ * The subset of RawData that the AI narrative prompt uses.
+ * LinkedIn data is not yet included in the prompt (no narrative template for it).
+ */
+export type NarrativeData = Pick<RawData, 'ga4' | 'googleAds' | 'meta'>;
+
+// ─── Tone instructions ────────────────────────────────────────────────────────
+
+const TONE_INSTRUCTIONS: Record<string, string> = {
+  professional:  'Write in a formal, data-driven tone. Use precise language and focus on measurable outcomes. Avoid colloquialisms.',
+  conversational:'Write in a warm, accessible, first-person tone. Use "we" and "your" to create partnership. Make insights feel approachable.',
+  executive:     'Write in a concise, strategic, C-suite-focused tone. Lead with impact and bottom-line implications. Bullet-point thinking in prose form.',
 };
 
-function delta(current: number | undefined, previous: number | undefined): string {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Returns a formatted percentage-change string (e.g. "+12.3%" or "-4.1%").
+ * Returns "0.0%" when either value is missing or the previous period is zero.
+ */
+function formatDelta(current: number | undefined, previous: number | undefined): string {
   if (!current || !previous || previous === 0) return '0.0%';
   const pct = ((current - previous) / previous) * 100;
   return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
 }
 
-function buildPrompt(data: NarrativeData, tone: string, clientName: string, goals?: any): string {
-  const metricsText = JSON.stringify({
+/**
+ * Builds the structured JSON prompt sent to the AI model.
+ * Goals are user-supplied freeform data, so they are typed as `unknown`.
+ */
+function buildPrompt(data: NarrativeData, tone: string, clientName: string, goals?: unknown): string {
+  const metrics = {
     ...(data.ga4 && {
       website_analytics: {
-        sessions: data.ga4.sessions,
-        sessions_change: delta(data.ga4.sessions, data.ga4.sessionsPrev),
-        bounce_rate: (data.ga4.bounceRate * 100).toFixed(1) + '%',
-        bounce_rate_change: delta(data.ga4.bounceRate, data.ga4.bounceRatePrev),
-        users: data.ga4.users,
-        users_change: delta(data.ga4.users, data.ga4.usersPrev),
-        conversion_rate: (data.ga4.conversionRate * 100).toFixed(2) + '%',
-        conversion_rate_change: delta(data.ga4.conversionRate, data.ga4.conversionRatePrev),
-      }
+        sessions:               data.ga4.sessions,
+        sessions_change:        formatDelta(data.ga4.sessions,       data.ga4.sessionsPrev),
+        bounce_rate:            (data.ga4.bounceRate * 100).toFixed(1) + '%',
+        bounce_rate_change:     formatDelta(data.ga4.bounceRate,     data.ga4.bounceRatePrev),
+        users:                  data.ga4.users,
+        users_change:           formatDelta(data.ga4.users,          data.ga4.usersPrev),
+        conversion_rate:        (data.ga4.conversionRate * 100).toFixed(2) + '%',
+        conversion_rate_change: formatDelta(data.ga4.conversionRate, data.ga4.conversionRatePrev),
+      },
     }),
     ...(data.googleAds && {
       google_ads: {
-        spend: '$' + data.googleAds.spend?.toFixed(0),
-        spend_change: delta(data.googleAds.spend, data.googleAds.spendPrev),
-        ctr: (data.googleAds.ctr * 100).toFixed(2) + '%',
-        ctr_change: delta(data.googleAds.ctr, data.googleAds.ctrPrev),
-        conversions: data.googleAds.conversions,
-        conversions_change: delta(data.googleAds.conversions, data.googleAds.conversionsPrev),
-        roas: data.googleAds.roas?.toFixed(2) + 'x',
-        roas_change: delta(data.googleAds.roas, data.googleAds.roasPrev),
-        cpc: '$' + data.googleAds.cpc?.toFixed(2),
-        cpc_change: delta(data.googleAds.cpc, data.googleAds.cpcPrev),
-      }
+        spend:             '$' + data.googleAds.spend?.toFixed(0),
+        spend_change:      formatDelta(data.googleAds.spend,        data.googleAds.spendPrev),
+        ctr:               (data.googleAds.ctr * 100).toFixed(2) + '%',
+        ctr_change:        formatDelta(data.googleAds.ctr,          data.googleAds.ctrPrev),
+        conversions:       data.googleAds.conversions,
+        conversions_change:formatDelta(data.googleAds.conversions,  data.googleAds.conversionsPrev),
+        roas:              data.googleAds.roas?.toFixed(2) + 'x',
+        roas_change:       formatDelta(data.googleAds.roas,         data.googleAds.roasPrev),
+        cpc:               '$' + data.googleAds.cpc?.toFixed(2),
+        cpc_change:        formatDelta(data.googleAds.cpc,          data.googleAds.cpcPrev),
+      },
     }),
     ...(data.meta && {
       meta_ads: {
-        spend: '$' + data.meta.spend?.toFixed(0),
-        spend_change: delta(data.meta.spend, data.meta.spendPrev),
-        ctr: (data.meta.ctr * 100).toFixed(2) + '%',
-        ctr_change: delta(data.meta.ctr, data.meta.ctrPrev),
-        roas: data.meta.roas?.toFixed(2) + 'x',
-        roas_change: delta(data.meta.roas, data.meta.roasPrev),
-        cpm: '$' + data.meta.cpm?.toFixed(2),
-        cpm_change: delta(data.meta.cpm, data.meta.cpmPrev),
-      }
+        spend:      '$' + data.meta.spend?.toFixed(0),
+        spend_change: formatDelta(data.meta.spend,  data.meta.spendPrev),
+        ctr:        (data.meta.ctr * 100).toFixed(2) + '%',
+        ctr_change: formatDelta(data.meta.ctr,     data.meta.ctrPrev),
+        roas:       data.meta.roas?.toFixed(2) + 'x',
+        roas_change:formatDelta(data.meta.roas,    data.meta.roasPrev),
+        cpm:        '$' + data.meta.cpm?.toFixed(2),
+        cpm_change: formatDelta(data.meta.cpm,     data.meta.cpmPrev),
+      },
     }),
-  }, null, 2);
+  };
 
   return `You are an expert digital marketing analyst writing a performance report narrative for ${clientName}.
 
-TONE INSTRUCTION: ${toneInstructions[tone] || toneInstructions.professional}
+TONE INSTRUCTION: ${TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.professional}
 
 CRITICAL REQUIREMENT: When any metric changed by more than 10%, you MUST identify cross-channel causal correlations. For example: "Meta creative frequency exceeded 4.0, which suppressed CTR 23% — this is why GA4 bounce rate simultaneously increased despite higher paid traffic volume." This cross-channel analysis is the primary differentiator of this report.
 
 PERFORMANCE DATA (current period vs. previous period):
-${metricsText}
+${JSON.stringify(metrics, null, 2)}
 
 ${goals ? `CLIENT GOALS: ${JSON.stringify(goals, null, 2)}` : ''}
 
@@ -117,35 +101,47 @@ Return ONLY valid JSON in this exact format:
 The total narrative should be 300-500 words. Include specific numbers from the data. Never make up data not provided.`;
 }
 
+// ─── AI providers ─────────────────────────────────────────────────────────────
+
+/**
+ * Generates a five-section strategic narrative using OpenAI (primary) or
+ * Anthropic Claude (fallback).  Throws if no AI provider is configured.
+ *
+ * @param data        Platform metrics for the current and previous period.
+ * @param tone        One of: "professional" | "conversational" | "executive".
+ * @param clientName  Used in the system prompt so the AI addresses the right client.
+ * @param goals       Optional freeform client goals to include in the prompt.
+ * @returns           The narrative sections and the model identifier used.
+ */
 export async function generateNarrative(
   data: NarrativeData,
   tone: string,
   clientName: string,
-  goals?: any
+  goals?: unknown,
 ): Promise<{ result: NarrativeResult; model: string }> {
   const prompt = buildPrompt(data, tone, clientName, goals);
 
-  // Try OpenAI first — supports both native OPENAI_API_KEY and Replit AI Integration env vars
+  // ── OpenAI (primary) ──
   const openaiApiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   const openaiBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+
   if (openaiApiKey) {
     try {
       const { default: OpenAI } = await import('openai');
-      const openai = new OpenAI({
-        apiKey: openaiApiKey,
-        ...(openaiBaseUrl && { baseURL: openaiBaseUrl }),
-      });
-      const model = process.env.OPENAI_MODEL || 'gpt-4o';
-
+      const openai  = new OpenAI({ apiKey: openaiApiKey, ...(openaiBaseUrl && { baseURL: openaiBaseUrl }) });
+      const model   = config.ai.openaiModel;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      const timeout    = setTimeout(() => controller.abort(), config.ai.requestTimeoutMs);
 
-      const response = await openai.chat.completions.create({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0.7,
-      }, { signal: controller.signal as any });
+      const response = await openai.chat.completions.create(
+        {
+          model,
+          messages:        [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          temperature:     config.ai.temperature,
+        },
+        { signal: controller.signal as AbortSignal },
+      );
 
       clearTimeout(timeout);
 
@@ -154,54 +150,67 @@ export async function generateNarrative(
 
       const parsed = JSON.parse(content) as NarrativeResult;
       return { result: parsed, model: `openai/${model}` };
-    } catch (err: any) {
-      const isRetryable = err?.status === 429 || err?.status === 500 || err?.status === 503 || err?.name === 'AbortError';
+    } catch (err: unknown) {
+      const e = err as { status?: number; name?: string; message?: string };
+      const isRetryable = e?.status === 429 || e?.status === 500 || e?.status === 503 || e?.name === 'AbortError';
       if (!isRetryable) throw err;
-      console.warn('OpenAI failed, falling back to Anthropic:', err.message);
+      console.warn('OpenAI failed, falling back to Anthropic:', e.message);
     }
   }
 
-  // Fallback to Anthropic (lazy import)
+  // ── Anthropic (fallback) ──
   if (process.env.ANTHROPIC_API_KEY) {
     try {
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-      const model = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
-
+      const anthropic  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const model      = config.ai.anthropicModel;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      const timeout    = setTimeout(() => controller.abort(), config.ai.requestTimeoutMs);
 
-      const response = await anthropic.messages.create({
-        model,
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt + '\n\nRespond ONLY with valid JSON.' }],
-      }, { signal: controller.signal as any } as any);
+      const response = await anthropic.messages.create(
+        {
+          model,
+          max_tokens: config.ai.maxTokens,
+          messages:   [{ role: 'user', content: prompt + '\n\nRespond ONLY with valid JSON.' }],
+        },
+        { signal: controller.signal as AbortSignal } as Parameters<typeof anthropic.messages.create>[1],
+      );
 
       clearTimeout(timeout);
 
-      const content = response.content[0]?.type === 'text' ? response.content[0].text : '';
-      if (!content) throw new Error('Empty Anthropic response');
+      const raw = response.content[0]?.type === 'text' ? response.content[0].text : '';
+      if (!raw) throw new Error('Empty Anthropic response');
 
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON in Anthropic response');
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found in Anthropic response');
 
       const parsed = JSON.parse(jsonMatch[0]) as NarrativeResult;
       return { result: parsed, model: `anthropic/${model}` };
-    } catch (err: any) {
-      console.error('Anthropic also failed:', err.message);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      console.error('Anthropic also failed:', e.message);
       throw new Error('Narrative generation failed. Please try again.');
     }
   }
 
-  throw new Error('No AI provider configured');
+  throw new Error('No AI provider configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.');
 }
 
+/**
+ * Returns a plausible-looking mock narrative for use in demo mode or
+ * when no AI provider key is available.
+ */
 export function generateMockNarrative(clientName: string): NarrativeResult {
   return {
-    executiveSummary: `${clientName} delivered a strong performance this period, with meaningful improvements across paid channels offsetting slight organic softness. Overall digital investment efficiency improved with ROAS trending positively.`,
-    campaignPerformance: `Google Ads demonstrated strong intent-capture efficiency with CTR improving 18% week-over-week, rising from 2.3% to 2.7%, while CPC decreased 8%. Meta Ads maintained stable reach metrics though frequency increased to 3.8, approaching the threshold where creative fatigue typically impacts engagement.`,
-    keyWins: `The standout win this period was Google Ads conversion volume increasing 24%, driven by improved Quality Scores on branded terms. GA4 shows a 12% improvement in goal completion rate from paid traffic, confirming the bottom-funnel efficiency gains are real and attributable.`,
-    areasOfConcern: `Meta creative frequency at 3.8 warrants immediate attention — historically, frequency above 4.0 correlates with a 15-23% CTR degradation and simultaneous GA4 bounce rate increase from paid social traffic. The current GA4 bounce rate from Meta traffic (64%) has already risen 7 points versus the prior period, suggesting early-stage creative fatigue.`,
-    recommendations: `Prioritize Meta creative refresh within the next 7 days before frequency exceeds 4.0. Introduce 2-3 new creative variants targeting the top-performing audience segments. For Google Ads, capitalize on the strong conversion momentum by increasing bids on the top 20% of converting keywords by 15-20%. Review GA4 landing page performance for Meta traffic — a landing page optimization test could recover 30-40% of the bounce rate degradation independent of creative refresh.`,
+    executiveSummary:
+      `${clientName} delivered a strong performance this period, with meaningful improvements across paid channels offsetting slight organic softness. Overall digital investment efficiency improved with ROAS trending positively.`,
+    campaignPerformance:
+      `Google Ads demonstrated strong intent-capture efficiency with CTR improving 18% week-over-week, rising from 2.3% to 2.7%, while CPC decreased 8%. Meta Ads maintained stable reach metrics though frequency increased to 3.8, approaching the threshold where creative fatigue typically impacts engagement.`,
+    keyWins:
+      `The standout win this period was Google Ads conversion volume increasing 24%, driven by improved Quality Scores on branded terms. GA4 shows a 12% improvement in goal completion rate from paid traffic, confirming the bottom-funnel efficiency gains are real and attributable.`,
+    areasOfConcern:
+      `Meta creative frequency at 3.8 warrants immediate attention — historically, frequency above 4.0 correlates with a 15-23% CTR degradation and simultaneous GA4 bounce rate increase from paid social traffic. The current GA4 bounce rate from Meta traffic (64%) has already risen 7 points versus the prior period, suggesting early-stage creative fatigue.`,
+    recommendations:
+      `Prioritize Meta creative refresh within the next 7 days before frequency exceeds 4.0. Introduce 2-3 new creative variants targeting the top-performing audience segments. For Google Ads, capitalize on the strong conversion momentum by increasing bids on the top 20% of converting keywords by 15-20%. Review GA4 landing page performance for Meta traffic — a landing page optimization test could recover 30-40% of the bounce rate degradation independent of creative refresh.`,
   };
 }
