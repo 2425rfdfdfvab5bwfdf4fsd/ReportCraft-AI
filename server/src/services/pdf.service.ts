@@ -460,12 +460,12 @@ function CoverStat({ label, value, color, isLast }: {
  * @param agency  Agency branding and subscription tier.
  * @param client  Client display name.
  */
-export async function generatePDF(report: ReportInput, agency: AgencyInput, client: ClientInput): Promise<Buffer> {
+export async function generatePDF(report: ReportInput, agency: AgencyInput | null, client: ClientInput): Promise<Buffer> {
   const rawData:   RawData | null         = report.rawData;
   const narrative: NarrativeResult | null = report.narrative;
   const color      = agency?.brandColor || '#6366F1';
   const errorColor = '#DC2626';
-  const isAgency   = ['AGENCY', 'AGENCY_PRO'].includes(agency?.subscriptionTier);
+  const isAgency   = ['AGENCY', 'AGENCY_PRO'].includes(agency?.subscriptionTier ?? '');
 
   const agencyName  = agency?.name || 'ReportCraft AI';
   const clientName  = client?.name  || 'Client';

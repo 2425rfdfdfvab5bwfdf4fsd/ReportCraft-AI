@@ -3,6 +3,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import prisma from '../lib/db';
 import { generateNarrative, generateMockNarrative, NarrativeData } from '../services/ai.service';
+import { toReportInput } from '../types';
 
 const router = Router();
 
@@ -268,7 +269,7 @@ router.post('/:id/export-pdf', async (req: Request, res: Response) => {
 
   try {
     const { generatePDF } = await import('../services/pdf.service');
-    const pdfBuffer = await generatePDF(report, report.agency, report.client);
+    const pdfBuffer = await generatePDF(toReportInput(report), report.agency, report.client);
     const clientSlug = (report.client?.name || 'Report').replace(/\s+/g, '-');
     const dateSlug   = new Date(report.dateRangeStart).toISOString().slice(0, 10);
     const filename   = `${clientSlug}-Performance-Report-${dateSlug}.pdf`;
@@ -279,9 +280,10 @@ router.post('/:id/export-pdf', async (req: Request, res: Response) => {
       'Cache-Control': 'no-store',
     });
     res.send(pdfBuffer);
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const err = e as { message?: string };
     console.error('PDF generation error:', e);
-    res.status(500).json({ error: 'PDF generation failed', message: e.message });
+    res.status(500).json({ error: 'PDF generation failed', message: err.message });
   }
 });
 
@@ -402,7 +404,7 @@ async function sendReportEmail(deliveryId: string, report: any, emailTo: string)
     let attachments: any[] = [];
     try {
       const { generatePDF } = await import('../services/pdf.service');
-      const pdfBuffer = await generatePDF(report, agency, report.client);
+      const pdfBuffer = await generatePDF(toReportInput(report), agency, report.client);
       attachments = [{ filename, content: pdfBuffer }];
     } catch (pdfErr) {
       console.error('PDF generation for email failed, sending without attachment:', pdfErr);

@@ -36,6 +36,9 @@ export interface MetaData {
   spend: number;        spendPrev: number;
   cpm: number;          cpmPrev: number;
   roas: number;         roasPrev: number;
+  /** Average number of times a unique user saw the ad — used for creative-fatigue analysis */
+  frequency?:     number;
+  frequencyPrev?: number;
 }
 
 export interface LinkedInData {
@@ -84,12 +87,37 @@ export interface ReportInput {
   aiModel?:        string | null;
 }
 
-/** Minimal agency fields required by generatePDF. */
+/** Minimal agency fields required by generatePDF (all optional so null is accepted). */
 export interface AgencyInput {
   name?:              string | null;
   logoUrl?:           string | null;
   brandColor?:        string | null;
   subscriptionTier?:  string | null;
+}
+
+/**
+ * Converts a Prisma Report record (where rawData/narrative are JsonValue) into
+ * the typed ReportInput that generatePDF expects.
+ *
+ * The cast is safe because our application is the sole writer of these fields
+ * and always stores a RawData / NarrativeResult-shaped object.
+ */
+export function toReportInput(report: {
+  rawData:        unknown;
+  narrative:      unknown;
+  dateRangeStart: Date | string;
+  dateRangeEnd:   Date | string;
+  narrativeTone?: string | null;
+  aiModel?:       string | null;
+}): ReportInput {
+  return {
+    rawData:        report.rawData     as RawData        | null,
+    narrative:      report.narrative   as NarrativeResult | null,
+    dateRangeStart: report.dateRangeStart,
+    dateRangeEnd:   report.dateRangeEnd,
+    narrativeTone:  report.narrativeTone,
+    aiModel:        report.aiModel,
+  };
 }
 
 /** Minimal client fields required by generatePDF. */

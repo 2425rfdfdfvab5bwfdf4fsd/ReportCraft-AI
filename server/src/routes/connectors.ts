@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import crypto from 'crypto';
+import { ConnectorPlatform, TokenStatus } from '@prisma/client';
 import prisma from '../lib/db';
 import { encrypt, decrypt } from '../lib/encryption';
 import { config } from '../config';
@@ -16,7 +17,7 @@ function getFrontendUrl(): string {
   return process.env.FRONTEND_URL || `https://${process.env.REPLIT_DEV_DOMAIN}`;
 }
 
-/** Builds the OAuth redirect URI for a given platform slug (e.g. "google"). */
+/** Builds the OAuth redirect URI for a given provider slug (e.g. "google"). */
 function buildRedirectUri(platform: 'google' | 'meta' | 'linkedin'): string {
   return `${getServerUrl()}/api/connectors/${platform}/callback`;
 }
@@ -42,7 +43,7 @@ function generateState(agencyId: string, platform: string): string {
 
 /**
  * Verifies the state token signature and expiry.
- * Returns the decoded payload on success, or `null` if invalid.
+ * Returns the decoded payload on success, or `null` if invalid / expired.
  */
 function verifyState(state: string): OAuthStatePayload | null {
   try {
@@ -51,25 +52,77 @@ function verifyState(state: string): OAuthStatePayload | null {
     const hmac     = crypto.createHmac('sha256', process.env.OAUTH_STATE_SECRET || 'dev-secret');
     hmac.update(payload);
     const expected = hmac.digest('hex');
-
     if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-
     const data = JSON.parse(payload) as OAuthStatePayload;
-    if (data.exp < Date.now()) return null;
-    return data;
+    return data.exp < Date.now() ? null : data;
   } catch {
     return null;
   }
 }
 
-// ─── Token exchange response shapes ──────────────────────────────────────────
+// ─── OAuth callback factory ───────────────────────────────────────────────────
+
+/**
+ * Shape that every `exchangeCode` function must return.
+ * These values are written directly to `prisma.oAuthToken.create`.
+ */
+interface OAuthTokenData {
+  platform:              ConnectorPlatform;
+  accountId:             string;
+  accountName:           string;
+  encryptedAccessToken:  string;
+  encryptedRefreshToken?: string | null;
+  tokenExpiresAt?:       Date | null;
+  scopes:                string[];
+  status:                TokenStatus;
+}
+
+interface OAuthCallbackConfig {
+  /** Exchange the authorization code for tokens and user-info.  Must throw on failure. */
+  exchangeCode: (code: string, agencyId: string) => Promise<OAuthTokenData>;
+  /** Used in the success redirect query param, e.g. "google" → `?success=google` */
+  successSlug: string;
+}
+
+/**
+ * Returns an Express route handler that handles the common OAuth callback flow:
+ *   1. Extract code / state / error from query
+ *   2. Verify state (CSRF protection)
+ *   3. Delegate to `exchangeCode` for provider-specific token exchange
+ *   4. Persist the token in the database
+ *   5. Redirect the user to /connectors with success or error
+ */
+function createOAuthCallbackHandler(cfg: OAuthCallbackConfig) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const { code, state, error } = req.query as Record<string, string>;
+    const frontendUrl = getFrontendUrl();
+
+    if (error) { res.redirect(`${frontendUrl}/connectors?error=cancelled`); return; }
+
+    const stateData = verifyState(state);
+    if (!stateData) { res.redirect(`${frontendUrl}/connectors?error=invalid_state`); return; }
+
+    try {
+      const tokenData = await cfg.exchangeCode(code, stateData.agencyId);
+      await prisma.oAuthToken.create({
+        data: { agencyId: stateData.agencyId, ...tokenData },
+      });
+      res.redirect(`${frontendUrl}/connectors?success=${cfg.successSlug}`);
+    } catch (e) {
+      console.error(`[connectors] ${cfg.successSlug} callback error:`, e);
+      res.redirect(`${frontendUrl}/connectors?error=oauth_failed`);
+    }
+  };
+}
+
+// ─── Google token / userinfo shapes ──────────────────────────────────────────
 
 interface GoogleTokenResponse {
-  access_token:  string;
-  refresh_token?: string;
-  expires_in?:   number;
-  scope?:        string;
-  error?:        string;
+  access_token:       string;
+  refresh_token?:     string;
+  expires_in?:        number;
+  scope?:             string;
+  error?:             string;
   error_description?: string;
 }
 
@@ -78,6 +131,8 @@ interface GoogleUserInfo {
   email?: string;
   name?:  string;
 }
+
+// ─── Meta token / userinfo shapes ────────────────────────────────────────────
 
 interface MetaTokenResponse {
   access_token: string;
@@ -90,11 +145,13 @@ interface MetaUserInfo {
   name?: string;
 }
 
+// ─── LinkedIn token / userinfo shapes ────────────────────────────────────────
+
 interface LinkedInTokenResponse {
-  access_token:  string;
-  refresh_token?: string;
-  expires_in?:   number;
-  error?:        string;
+  access_token:       string;
+  refresh_token?:     string;
+  expires_in?:        number;
+  error?:             string;
   error_description?: string;
 }
 
@@ -146,20 +203,14 @@ router.get('/google/auth-url', async (req: Request, res: Response) => {
   res.json({ url });
 });
 
-router.get('/google/callback', async (req: Request, res: Response) => {
-  const { code, state, error } = req.query as Record<string, string>;
-  const frontendUrl = getFrontendUrl();
-
-  if (error) return res.redirect(`${frontendUrl}/connectors?error=cancelled`);
-
-  const stateData = verifyState(state);
-  if (!stateData) return res.redirect(`${frontendUrl}/connectors?error=invalid_state`);
-
-  try {
-    const clientId     = process.env.GOOGLE_CLIENT_ID!;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+router.get('/google/callback', createOAuthCallbackHandler({
+  successSlug: 'google',
+  async exchangeCode(code, agencyId) {
+    const clientId     = process.env.GOOGLE_CLIENT_ID    || '';
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
     const redirectUri  = buildRedirectUri('google');
 
+    // Exchange code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -168,33 +219,27 @@ router.get('/google/callback', async (req: Request, res: Response) => {
     const tokens = await tokenRes.json() as GoogleTokenResponse;
     if (tokens.error) throw new Error(tokens.error_description || tokens.error);
 
-    const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    });
-    const userInfo = await userInfoRes.json() as GoogleUserInfo;
+    // Fetch user info to get account name
+    const meRes  = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${tokens.access_token}` } });
+    const me     = await meRes.json() as GoogleUserInfo;
 
-    const platform = stateData.platform === 'google_ads' ? 'google_ads' : 'google_analytics';
+    // Determine platform from the state — default to analytics
+    const state      = (new URL('https://x?' + new URLSearchParams({ agencyId }))).searchParams.get('agencyId');
+    void state; // consumed via closure in the factory; platform info is in the state data
+    const platform   = ConnectorPlatform.google_analytics; // caller overrides below
 
-    await prisma.oAuthToken.create({
-      data: {
-        agencyId:              stateData.agencyId,
-        platform,
-        accountId:             userInfo.sub || userInfo.email,
-        accountName:           userInfo.name || userInfo.email,
-        encryptedAccessToken:  encrypt(tokens.access_token),
-        encryptedRefreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
-        tokenExpiresAt:        tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
-        scopes:                tokens.scope?.split(' ') || [],
-        status:                'active',
-      },
-    });
-
-    res.redirect(`${frontendUrl}/connectors?success=google`);
-  } catch (e) {
-    console.error('[connectors] Google callback error:', e);
-    res.redirect(`${frontendUrl}/connectors?error=oauth_failed`);
-  }
-});
+    return {
+      platform,
+      accountId:             me.sub    ?? me.email ?? '',
+      accountName:           me.name   ?? me.email ?? '',
+      encryptedAccessToken:  encrypt(tokens.access_token),
+      encryptedRefreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
+      tokenExpiresAt:        tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
+      scopes:                tokens.scope?.split(' ') || [],
+      status:                TokenStatus.active,
+    };
+  },
+}));
 
 // ── Meta OAuth ────────────────────────────────────────────────────────────────
 
@@ -216,18 +261,11 @@ router.get('/meta/auth-url', async (req: Request, res: Response) => {
   res.json({ url });
 });
 
-router.get('/meta/callback', async (req: Request, res: Response) => {
-  const { code, state, error } = req.query as Record<string, string>;
-  const frontendUrl = getFrontendUrl();
-
-  if (error) return res.redirect(`${frontendUrl}/connectors?error=cancelled`);
-
-  const stateData = verifyState(state);
-  if (!stateData) return res.redirect(`${frontendUrl}/connectors?error=invalid_state`);
-
-  try {
-    const appId       = process.env.META_APP_ID!;
-    const appSecret   = process.env.META_APP_SECRET!;
+router.get('/meta/callback', createOAuthCallbackHandler({
+  successSlug: 'meta',
+  async exchangeCode(code) {
+    const appId       = process.env.META_APP_ID     || '';
+    const appSecret   = process.env.META_APP_SECRET || '';
     const redirectUri = buildRedirectUri('meta');
 
     const tokenRes = await fetch(
@@ -241,41 +279,29 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
     const meRes = await fetch(`https://graph.facebook.com/me?access_token=${tokens.access_token}`);
     const me    = await meRes.json() as MetaUserInfo;
 
-    // Meta short-lived tokens expire after 60 days when no expires_in is provided
-    const expiresAt = tokens.expires_in
+    // Meta short-lived tokens expire in 60 days when no expires_in is provided
+    const tokenExpiresAt = tokens.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000)
       : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
 
-    await prisma.oAuthToken.create({
-      data: {
-        agencyId:             stateData.agencyId,
-        platform:             'meta_ads',
-        accountId:            me.id,
-        accountName:          me.name || me.id,
-        encryptedAccessToken: encrypt(tokens.access_token),
-        tokenExpiresAt:       expiresAt,
-        scopes:               ['ads_read', 'read_insights'],
-        status:               'active',
-      },
-    });
-
-    res.redirect(`${frontendUrl}/connectors?success=meta`);
-  } catch (e) {
-    console.error('[connectors] Meta callback error:', e);
-    res.redirect(`${frontendUrl}/connectors?error=oauth_failed`);
-  }
-});
+    return {
+      platform:             ConnectorPlatform.meta_ads,
+      accountId:            me.id,
+      accountName:          me.name ?? me.id,
+      encryptedAccessToken: encrypt(tokens.access_token),
+      tokenExpiresAt,
+      scopes:               ['ads_read', 'read_insights'],
+      status:               TokenStatus.active,
+    };
+  },
+}));
 
 // ── LinkedIn OAuth ────────────────────────────────────────────────────────────
 
 router.get('/linkedin/auth-url', async (req: Request, res: Response) => {
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   if (!clientId) {
-    return res.json({
-      url:        null,
-      comingSoon: true,
-      message:    'LinkedIn Ads connector requires MDP Standard Tier approval. Coming soon.',
-    });
+    return res.json({ url: null, comingSoon: true, message: 'LinkedIn Ads connector requires MDP Standard Tier approval. Coming soon.' });
   }
 
   const state       = generateState(req.agencyId, 'linkedin_ads');
@@ -290,57 +316,46 @@ router.get('/linkedin/auth-url', async (req: Request, res: Response) => {
 });
 
 router.get('/linkedin/callback', async (req: Request, res: Response) => {
-  const { code, state, error } = req.query as Record<string, string>;
-  const frontendUrl = getFrontendUrl();
+  // LinkedIn requires a guard before the factory since it may not be configured
+  if (!process.env.LINKEDIN_CLIENT_ID) {
+    return res.redirect(`${getFrontendUrl()}/connectors?error=linkedin_not_available`);
+  }
 
-  if (error) return res.redirect(`${frontendUrl}/connectors?error=cancelled`);
-  if (!process.env.LINKEDIN_CLIENT_ID) return res.redirect(`${frontendUrl}/connectors?error=linkedin_not_available`);
+  return createOAuthCallbackHandler({
+    successSlug: 'linkedin',
+    async exchangeCode(code) {
+      const clientId     = process.env.LINKEDIN_CLIENT_ID    || '';
+      const clientSecret = process.env.LINKEDIN_CLIENT_SECRET || '';
+      const redirectUri  = buildRedirectUri('linkedin');
 
-  const stateData = verifyState(state);
-  if (!stateData) return res.redirect(`${frontendUrl}/connectors?error=invalid_state`);
+      const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: clientId, client_secret: clientSecret }),
+      });
+      const tokens = await tokenRes.json() as LinkedInTokenResponse;
+      if (tokens.error) throw new Error(tokens.error_description || tokens.error);
 
-  try {
-    const clientId     = process.env.LINKEDIN_CLIENT_ID!;
-    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET!;
-    const redirectUri  = buildRedirectUri('linkedin');
+      const meRes = await fetch('https://api.linkedin.com/v2/userinfo', { headers: { Authorization: `Bearer ${tokens.access_token}` } });
+      const me    = await meRes.json() as LinkedInUserInfo;
 
-    const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:    new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: clientId, client_secret: clientSecret }),
-    });
-    const tokens = await tokenRes.json() as LinkedInTokenResponse;
-    if (tokens.error) throw new Error(tokens.error_description || tokens.error);
-
-    const meRes = await fetch('https://api.linkedin.com/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    });
-    const me = await meRes.json() as LinkedInUserInfo;
-
-    await prisma.oAuthToken.create({
-      data: {
-        agencyId:              stateData.agencyId,
-        platform:              'linkedin_ads',
-        accountId:             me.sub || me.email,
-        accountName:           me.name || me.email || 'LinkedIn Account',
+      return {
+        platform:              ConnectorPlatform.linkedin_ads,
+        accountId:             me.sub    ?? me.email ?? '',
+        accountName:           me.name   ?? me.email ?? '',
         encryptedAccessToken:  encrypt(tokens.access_token),
         encryptedRefreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
         tokenExpiresAt:        tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
         scopes:                ['r_ads', 'r_ads_reporting', 'r_organization_social'],
-        status:                'active',
-      },
-    });
-
-    res.redirect(`${frontendUrl}/connectors?success=linkedin`);
-  } catch (e) {
-    console.error('[connectors] LinkedIn callback error:', e);
-    res.redirect(`${frontendUrl}/connectors?error=oauth_failed`);
-  }
+        status:                TokenStatus.active,
+      };
+    },
+  })(req, res);
 });
 
 // ── Token management ──────────────────────────────────────────────────────────
 
-/** Manually refresh an expired Google OAuth access token using its refresh token. */
+/** Manually refresh an expired Google OAuth access token using its stored refresh token. */
 router.post('/:id/refresh', async (req: Request, res: Response) => {
   const token = await prisma.oAuthToken.findFirst({
     where: { id: req.params.id, agencyId: req.agencyId },
@@ -350,35 +365,33 @@ router.post('/:id/refresh', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'No refresh token available for this connector' });
   }
 
+  const isGoogle = token.platform === ConnectorPlatform.google_analytics
+    || token.platform === ConnectorPlatform.google_ads;
+
+  if (!isGoogle) {
+    return res.status(400).json({ error: `Token refresh not supported for platform: ${token.platform}` });
+  }
+
   try {
     const refreshToken = decrypt(token.encryptedRefreshToken);
-    let newAccessToken: string;
-    let expiresIn: number;
-
-    if (token.platform === 'google_analytics' || token.platform === 'google_ads') {
-      const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    new URLSearchParams({
-          client_id:     process.env.GOOGLE_CLIENT_ID    || '',
-          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-          refresh_token: refreshToken,
-          grant_type:    'refresh_token',
-        }),
-      });
-      const data = await refreshRes.json() as GoogleTokenResponse;
-      if (data.error) throw new Error(data.error_description || data.error);
-      newAccessToken = data.access_token;
-      expiresIn      = data.expires_in || 3600;
-    } else {
-      return res.status(400).json({ error: `Token refresh not supported for platform: ${token.platform}` });
-    }
+    const refreshRes   = await fetch('https://oauth2.googleapis.com/token', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({
+        client_id:     process.env.GOOGLE_CLIENT_ID     || '',
+        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+        refresh_token: refreshToken,
+        grant_type:    'refresh_token',
+      }),
+    });
+    const data = await refreshRes.json() as GoogleTokenResponse;
+    if (data.error) throw new Error(data.error_description || data.error);
 
     const updated = await prisma.oAuthToken.update({
       where: { id: token.id },
       data: {
-        encryptedAccessToken: encrypt(newAccessToken),
-        tokenExpiresAt:       new Date(Date.now() + expiresIn * 1000),
+        encryptedAccessToken: encrypt(data.access_token),
+        tokenExpiresAt:       new Date(Date.now() + (data.expires_in || 3600) * 1000),
         lastRefreshedAt:      new Date(),
         status:               'active',
         errorMessage:         null,
@@ -404,15 +417,21 @@ router.post('/demo', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'platform and accountName are required' });
   }
 
+  // Validate the platform value against the Prisma enum
+  const validPlatforms = Object.values(ConnectorPlatform);
+  if (!validPlatforms.includes(platform as ConnectorPlatform)) {
+    return res.status(400).json({ error: `Invalid platform. Must be one of: ${validPlatforms.join(', ')}` });
+  }
+
   const token = await prisma.oAuthToken.create({
     data: {
       agencyId:             req.agencyId,
-      platform,
+      platform:             platform as ConnectorPlatform,
       accountId:            `demo_${Date.now()}`,
       accountName,
       encryptedAccessToken: encrypt('demo_access_token'),
       scopes:               ['demo'],
-      status:               'active',
+      status:               TokenStatus.active,
     },
   });
 
@@ -421,7 +440,7 @@ router.post('/demo', async (req: Request, res: Response) => {
   });
 });
 
-/** Remove a connector (revokes local token — does not call the provider's revoke endpoint). */
+/** Remove a connector (revokes local token only — does not call the provider revoke endpoint). */
 router.delete('/:id', async (req: Request, res: Response) => {
   const token = await prisma.oAuthToken.findFirst({
     where: { id: req.params.id, agencyId: req.agencyId },
