@@ -45,6 +45,17 @@ export const config = {
     demoDurationDays:  30,
   },
 
+  /**
+   * Maximum number of AI-generated reports per calendar month, keyed by
+   * subscription tier.  `Infinity` means unlimited.
+   */
+  reportLimits: {
+    FREE_TRIAL: Infinity,
+    STARTER:    5,
+    AGENCY:     Infinity,
+    AGENCY_PRO: Infinity,
+  } as Record<string, number>,
+
   /** OAuth flow settings */
   oauth: {
     /** How long a signed state token remains valid */

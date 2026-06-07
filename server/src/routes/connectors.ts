@@ -78,8 +78,13 @@ interface OAuthTokenData {
 }
 
 interface OAuthCallbackConfig {
-  /** Exchange the authorization code for tokens and user-info.  Must throw on failure. */
-  exchangeCode: (code: string, agencyId: string) => Promise<OAuthTokenData>;
+  /**
+   * Exchange the authorization code for tokens and user-info.
+   * Receives the full verified state payload (including `platform`) so providers
+   * can determine the exact ConnectorPlatform to store (e.g. google_analytics vs google_ads).
+   * Must throw on failure.
+   */
+  exchangeCode: (code: string, stateData: OAuthStatePayload) => Promise<OAuthTokenData>;
   /** Used in the success redirect query param, e.g. "google" → `?success=google` */
   successSlug: string;
 }
@@ -103,7 +108,7 @@ function createOAuthCallbackHandler(cfg: OAuthCallbackConfig) {
     if (!stateData) { res.redirect(`${frontendUrl}/connectors?error=invalid_state`); return; }
 
     try {
-      const tokenData = await cfg.exchangeCode(code, stateData.agencyId);
+      const tokenData = await cfg.exchangeCode(code, stateData);
       await prisma.oAuthToken.create({
         data: { agencyId: stateData.agencyId, ...tokenData },
       });
@@ -205,8 +210,8 @@ router.get('/google/auth-url', async (req: Request, res: Response) => {
 
 router.get('/google/callback', createOAuthCallbackHandler({
   successSlug: 'google',
-  async exchangeCode(code, agencyId) {
-    const clientId     = process.env.GOOGLE_CLIENT_ID    || '';
+  async exchangeCode(code, stateData) {
+    const clientId     = process.env.GOOGLE_CLIENT_ID     || '';
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
     const redirectUri  = buildRedirectUri('google');
 
@@ -219,14 +224,15 @@ router.get('/google/callback', createOAuthCallbackHandler({
     const tokens = await tokenRes.json() as GoogleTokenResponse;
     if (tokens.error) throw new Error(tokens.error_description || tokens.error);
 
-    // Fetch user info to get account name
-    const meRes  = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${tokens.access_token}` } });
-    const me     = await meRes.json() as GoogleUserInfo;
+    // Fetch user info to get account display name
+    const meRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${tokens.access_token}` } });
+    const me    = await meRes.json() as GoogleUserInfo;
 
-    // Determine platform from the state — default to analytics
-    const state      = (new URL('https://x?' + new URLSearchParams({ agencyId }))).searchParams.get('agencyId');
-    void state; // consumed via closure in the factory; platform info is in the state data
-    const platform   = ConnectorPlatform.google_analytics; // caller overrides below
+    // Use the platform recorded in the state token so Google Ads and Google Analytics
+    // callbacks are stored under the correct ConnectorPlatform value.
+    const platform = stateData.platform === 'google_ads'
+      ? ConnectorPlatform.google_ads
+      : ConnectorPlatform.google_analytics;
 
     return {
       platform,
@@ -263,7 +269,7 @@ router.get('/meta/auth-url', async (req: Request, res: Response) => {
 
 router.get('/meta/callback', createOAuthCallbackHandler({
   successSlug: 'meta',
-  async exchangeCode(code) {
+  async exchangeCode(code, _stateData) {
     const appId       = process.env.META_APP_ID     || '';
     const appSecret   = process.env.META_APP_SECRET || '';
     const redirectUri = buildRedirectUri('meta');
@@ -323,7 +329,7 @@ router.get('/linkedin/callback', async (req: Request, res: Response) => {
 
   return createOAuthCallbackHandler({
     successSlug: 'linkedin',
-    async exchangeCode(code) {
+    async exchangeCode(code, _stateData) {
       const clientId     = process.env.LINKEDIN_CLIENT_ID    || '';
       const clientSecret = process.env.LINKEDIN_CLIENT_SECRET || '';
       const redirectUri  = buildRedirectUri('linkedin');

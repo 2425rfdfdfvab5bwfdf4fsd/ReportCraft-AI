@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import type { Agency } from '@prisma/client';
 import prisma from '../lib/db';
 import { config } from '../config';
 
@@ -14,9 +15,10 @@ declare global {
 
 const DEMO_CLERK_USER_ID = 'demo_user_replit';
 
-let _demoAgencyCache: any = null;
+/** Cached demo agency — avoids a DB round-trip on every request in demo mode. */
+let _demoAgencyCache: Agency | null = null;
 
-async function getDemoAgency() {
+async function getDemoAgency(): Promise<Agency> {
   if (_demoAgencyCache) return _demoAgencyCache;
 
   const existing = await prisma.agency.findUnique({ where: { clerkUserId: DEMO_CLERK_USER_ID } });
@@ -28,26 +30,34 @@ async function getDemoAgency() {
   try {
     const created = await prisma.agency.create({
       data: {
-        clerkUserId: DEMO_CLERK_USER_ID,
-        name: 'Demo Agency',
-        subscriptionTier: 'AGENCY',
-        subscriptionStatus: 'active',
-        trialEndsAt: new Date(Date.now() + config.trial.demoDurationDays * 24 * 60 * 60 * 1000),
-        referralCode: 'DEMO1234',
+        clerkUserId:           DEMO_CLERK_USER_ID,
+        name:                  'Demo Agency',
+        subscriptionTier:      'AGENCY',
+        subscriptionStatus:    'active',
+        trialEndsAt:           new Date(Date.now() + config.trial.demoDurationDays * 24 * 60 * 60 * 1000),
+        referralCode:          'DEMO1234',
         onboardingCompletedAt: new Date(),
-        brandColor: '#6366F1',
+        brandColor:            '#6366F1',
       },
     });
     _demoAgencyCache = created;
     return created;
-  } catch (e: any) {
-    if (e.code === 'P2002') {
+  } catch (e: unknown) {
+    const err = e as { code?: string };
+    if (err.code === 'P2002') {
+      // Race condition — another request created it first; fetch it
       const found = await prisma.agency.findUniqueOrThrow({ where: { clerkUserId: DEMO_CLERK_USER_ID } });
       _demoAgencyCache = found;
       return found;
     }
     throw e;
   }
+}
+
+/** Minimal shape returned by Clerk's verifyToken. */
+interface ClerkJWTPayload {
+  sub: string;
+  [key: string]: unknown;
 }
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
@@ -57,8 +67,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     // Demo mode: no Clerk key configured
     if (!clerkSecretKey) {
       const agency = await getDemoAgency();
-      req.agencyId = agency.id;
-      req.clerkUserId = DEMO_CLERK_USER_ID;
+      req.agencyId      = agency.id;
+      req.clerkUserId   = DEMO_CLERK_USER_ID;
       req.teamMemberRole = 'owner';
       return next();
     }
@@ -70,12 +80,12 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 
     const token = authHeader.split(' ')[1];
 
-    let payload: any;
+    let payload: ClerkJWTPayload;
     try {
       const { createClerkClient } = await import('@clerk/clerk-sdk-node');
       const clerkClient = createClerkClient({ secretKey: clerkSecretKey });
-      payload = await clerkClient.verifyToken(token);
-    } catch (e) {
+      payload = (await clerkClient.verifyToken(token)) as ClerkJWTPayload;
+    } catch {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
@@ -87,21 +97,22 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       agency = await prisma.agency.create({
         data: {
           clerkUserId,
-          subscriptionTier: 'FREE_TRIAL',
+          subscriptionTier:   'FREE_TRIAL',
           subscriptionStatus: 'trial',
-          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-          referralCode: Math.random().toString(36).substring(2, 10).toUpperCase(),
+          trialEndsAt:        new Date(Date.now() + config.trial.freeDurationDays * 24 * 60 * 60 * 1000),
+          referralCode:       Math.random().toString(36).substring(2, 10).toUpperCase(),
         },
       });
       console.warn(`webhook_recovery: created agency on-the-fly for clerk user ${clerkUserId}`);
     }
 
-    req.agencyId = agency.id;
+    req.agencyId    = agency.id;
     req.clerkUserId = clerkUserId;
 
     const teamMember = await prisma.teamMember.findFirst({
       where: { agencyId: agency.id, clerkUserId, removedAt: null },
     });
+
     if (teamMember) {
       req.teamMemberRole = teamMember.role;
     } else if (agency.clerkUserId === clerkUserId) {

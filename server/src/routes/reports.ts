@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/db';
 import { generateNarrative, generateMockNarrative, NarrativeData } from '../services/ai.service';
 import { toReportInput } from '../types';
+import { config } from '../config';
 
 const router = Router();
 
@@ -19,7 +21,7 @@ router.get('/', async (req: Request, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 20;
   const clientId = req.query.clientId as string;
 
-  const where: any = { agencyId: req.agencyId };
+  const where: Prisma.ReportWhereInput = { agencyId: req.agencyId };
   if (clientId) where.clientId = clientId;
 
   const [reports, total] = await Promise.all([
@@ -34,13 +36,6 @@ router.get('/', async (req: Request, res: Response) => {
   ]);
   res.json({ reports, total });
 });
-
-const AI_REPORT_MONTHLY_LIMITS: Record<string, number> = {
-  FREE_TRIAL: Infinity,
-  STARTER: 5,
-  AGENCY: Infinity,
-  AGENCY_PRO: Infinity,
-};
 
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -67,7 +62,7 @@ router.post('/', async (req: Request, res: Response) => {
     const agency = await prisma.agency.findUnique({ where: { id: req.agencyId } });
 
     // Enforce AI report monthly limit
-    const monthlyLimit = AI_REPORT_MONTHLY_LIMITS[agency?.subscriptionTier || 'FREE_TRIAL'] ?? 5;
+    const monthlyLimit = config.reportLimits[agency?.subscriptionTier ?? 'FREE_TRIAL'] ?? 5;
     if (isFinite(monthlyLimit) && (agency?.aiReportsUsedThisMonth ?? 0) >= monthlyLimit) {
       return res.status(403).json({
         error: 'REPORT_LIMIT_REACHED',
@@ -93,13 +88,22 @@ router.post('/', async (req: Request, res: Response) => {
     generateReportAsync(report.id, client, data.narrativeTone || agency?.narrativeTone || 'professional');
 
     res.status(201).json({ id: report.id, status: 'generating' });
-  } catch (e: any) {
-    if (e.name === 'ZodError') return res.status(400).json({ error: e.errors });
+  } catch (e: unknown) {
+    const err = e as { name?: string; errors?: unknown };
+    if (err.name === 'ZodError') return res.status(400).json({ error: err.errors });
     throw e;
   }
 });
 
-async function generateReportAsync(reportId: string, client: any, tone: string) {
+/** Minimal client fields needed to generate a report narrative. */
+interface GenerateClientInput {
+  id:       string;
+  agencyId: string;
+  name:     string;
+  goals?:   unknown;
+}
+
+async function generateReportAsync(reportId: string, client: GenerateClientInput, tone: string) {
   const startTime = Date.now();
   try {
     const rawData: NarrativeData = generateMockData();
@@ -138,8 +142,8 @@ async function generateReportAsync(reportId: string, client: any, tone: string) 
       where: { id: reportId },
       data: {
         status: 'ready',
-        rawData: rawData as any,
-        narrative: narrativeWithMeta as any,
+        rawData:    rawData           as Prisma.InputJsonValue,
+        narrative:  narrativeWithMeta as Prisma.InputJsonValue,
         aiModel,
         generationDurationMs: Date.now() - startTime,
       },
@@ -373,7 +377,10 @@ router.post('/:id/send', async (req: Request, res: Response) => {
   res.status(201).json(delivery);
 });
 
-async function sendReportEmail(deliveryId: string, report: any, emailTo: string) {
+/** Minimal shape of the report passed to sendReportEmail (findFirst + include client:true). */
+type ReportForEmail = Prisma.ReportGetPayload<{ include: { client: true } }>;
+
+async function sendReportEmail(deliveryId: string, report: ReportForEmail, emailTo: string) {
   try {
     if (!process.env.RESEND_API_KEY) {
       await new Promise(r => setTimeout(r, 1000));
@@ -401,7 +408,7 @@ async function sendReportEmail(deliveryId: string, report: any, emailTo: string)
 
     const filename = `${clientName.replace(/\s+/g, '-')}-Report-${new Date(report.dateRangeStart).toISOString().slice(0, 10)}.pdf`;
 
-    let attachments: any[] = [];
+    let attachments: Array<{ filename: string; content: Buffer }> = [];
     try {
       const { generatePDF } = await import('../services/pdf.service');
       const pdfBuffer = await generatePDF(toReportInput(report), agency, report.client);
@@ -428,10 +435,11 @@ async function sendReportEmail(deliveryId: string, report: any, emailTo: string)
         failureReason: error ? String(error) : null,
       },
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const err = e as { message?: string };
     await prisma.reportDelivery.update({
       where: { id: deliveryId },
-      data: { status: 'failed', failureReason: e.message },
+      data: { status: 'failed', failureReason: err.message ?? 'Unknown error' },
     });
   }
 }
