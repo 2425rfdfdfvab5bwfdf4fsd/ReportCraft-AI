@@ -236,7 +236,7 @@ function RunningHeader({ agencyName, clientName, dateRange, color }: {
 }
 
 function RunningFooter({ agencyName, genDate }: { agencyName: string; genDate: string }) {
-  return React.createElement(View, { style: { marginTop: 10 }, fixed: true },
+  return React.createElement(View, { style: { position: 'absolute', bottom: 0, left: 0, right: 0 }, fixed: true },
     React.createElement(View, { style: S.rFtrLine }),
     React.createElement(View, { style: S.rFtrRow },
       React.createElement(Text, { style: S.rFtrTxt }, `${agencyName}  ·  Strictly Confidential`),
